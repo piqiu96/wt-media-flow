@@ -1,0 +1,26 @@
+# 下载任务配置示例
+# 使用方式: python main.py cmd download --config conf/download.yaml
+
+# 下载源: douyin / bilibili
+source: douyin
+
+# 批量 URL 列表
+urls:
+  # - "https://v.douyin.com/xxx1"
+  # - "https://v.douyin.com/xxx2"
+  # - "https://www.bilibili.com/video/BVxxx"
+
+# 或从文件读取（每行一个 URL，# 开头为注释）
+# urls_file: data/urls.txt
+
+# 输出目录
+output_dir: data/downloads/
+
+# 平台特定参数
+bilibili:
+  # cookies 文件路径（高画质需要登录态）
+  # cookies: conf/bilibili_cookies.txt
+  quality: best  # best / 1080p / 720p
+
+douyin:
+  # user_agent: "Mozilla/5.0 ..."

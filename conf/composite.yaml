@@ -1,0 +1,25 @@
+# 视频合成任务配置示例
+# 使用方式: python main.py cmd composite --config conf/composite.yaml
+
+# 输入（二选一）
+input_dir: data/downloads/          # 批量：处理目录下所有视频
+# input_file: data/downloads/single.mp4  # 单个文件
+
+# 引导视频
+guide_video: data/guides/guide.mp4
+
+# 合成参数
+insert_at: 10                       # 插入位置（秒）
+# insert_range: "10-15"             # 自适应插入：在范围内找关键帧（优先于 insert_at）
+# guide_duration: 5                 # 可选：只截取引导视频前 N 秒（默认使用完整引导视频）
+
+# 去重参数
+dedup: true                         # 开启视频去重（默认 true）
+# overlay_dir: data/overlays/       # 尾部动画素材目录（为空则自动生成）
+
+# 输出目录
+output_dir: data/output/
+
+# 编码参数（通常不需要改，settings.py 中有默认值）
+# video_codec: libx264
+# audio_codec: aac

@@ -1,0 +1,33 @@
+# 全流程 Pipeline 配置示例
+# 使用方式: python main.py cmd pipeline --config conf/pipeline.yaml
+
+# 执行步骤（按顺序执行，可注释掉跳过某步骤）
+steps:
+  - download
+  - composite
+  # - publish              # 取消注释启用自动入库发布
+
+# === 下载配置 ===
+download:
+  source: douyin            # douyin / bilibili
+  urls:
+    # - "https://v.douyin.com/xxx1"
+    # - "https://v.douyin.com/xxx2"
+  # urls_file: data/urls.txt
+  output_dir: data/downloads/
+  # cookies: conf/bilibili_cookies.txt
+  # quality: best
+
+# === 合成配置 ===
+composite:
+  guide_video: data/guides/guide.mp4
+  insert_at: 10             # 插入位置（秒）
+  # guide_duration: 5       # 引导视频截取时长
+  output_dir: data/output/
+
+# === 发布配置（可选）===
+publish:
+  platform: bilibili        # 发布目标平台
+  title_prefix: ""          # 标题前缀
+  tags: ""                  # 标签，逗号分隔
+  description: ""           # 描述

@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# 虚拟环境
+.venv/
+env/
+venv/
+ENV/
+myenv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 数据和日志
+*.db
+*.log
+log/
+data/
+
+# 配置文件
+conf/.env
+conf_online/.env
+
+# 打包输出
+output/
+
+# 外部工具二进制
+bin/
+
+# 系统文件
+.DS_Store
+Thumbs.db
