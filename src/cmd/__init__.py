@@ -77,3 +77,4 @@ from cmd.video import VideoCommand
 from cmd.task import TaskCommand
 from cmd.plan import PlanCommand
 from cmd.run import RunCommand
+from cmd.claw import ClawCommand

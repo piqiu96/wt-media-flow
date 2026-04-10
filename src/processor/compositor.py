@@ -3,6 +3,7 @@ FFmpeg 视频合成器 - 在原视频指定位置插入引导视频，支持去�
 """
 import json
 import os
+import random
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -12,6 +13,104 @@ from utils.log import get_logger
 from library.video_util import VideoDedup, SceneDetector, TailAnimation
 
 logger = get_logger(__name__)
+
+# 常量
+TAIL_RESERVE = 3.0      # 尾部动画预留秒数
+BACK_TAIL_CUT = (3.0, 5.0)  # back 段默认截尾范围（秒）
+
+
+class StickerOverlay:
+    """在视频段上叠加随机贴纸"""
+
+    STICKER_EXTENSIONS = {".png", ".jpg", ".jpeg"}
+
+    # 8 个边缘区域（相对于视频宽高的比例）
+    POSITIONS = [
+        (0.02, 0.02),   # 左上
+        (0.85, 0.02),   # 右上
+        (0.02, 0.85),   # 左下
+        (0.85, 0.85),   # 右下
+        (0.40, 0.02),   # 上中
+        (0.40, 0.85),   # 下中
+        (0.02, 0.40),   # 左中
+        (0.85, 0.40),   # 右中
+    ]
+
+    def __init__(self, sticker_dir: str = ""):
+        self.sticker_dir = sticker_dir or settings.STICKER_DIR
+        self._stickers = self._load_stickers()
+
+    def _load_stickers(self) -> list[str]:
+        if not os.path.isdir(self.sticker_dir):
+            return []
+        return [
+            os.path.join(self.sticker_dir, f)
+            for f in os.listdir(self.sticker_dir)
+            if Path(f).suffix.lower() in self.STICKER_EXTENSIONS
+        ]
+
+    def available(self) -> bool:
+        return len(self._stickers) >= 2
+
+    def build_overlay_filters(self, back_duration: float, w: int, h: int,
+                              back_label: str, inputs: list[str]) -> tuple[list[str], str]:
+        """构建贴纸 overlay filter 链
+
+        返回: (filter_parts, final_label)
+        """
+        if not self.available() or back_duration <= 0:
+            return [], back_label
+
+        # 随机选 2-5 张贴纸
+        count = min(random.randint(2, 5), len(self._stickers))
+        chosen = random.sample(self._stickers, count)
+
+        # 贴纸尺寸：短边的 5-8%
+        short_side = min(w, h)
+        sticker_size = int(short_side * random.uniform(0.05, 0.08))
+        sticker_size = max(sticker_size, 30)
+
+        # 随机分配位置（不重复）
+        positions = random.sample(self.POSITIONS, min(count, len(self.POSITIONS)))
+
+        # 将 back 段时间均匀分成 count 个时间窗口
+        window = back_duration / count
+
+        filter_parts = []
+        current_label = back_label
+
+        for i, (sticker_path, pos) in enumerate(zip(chosen, positions)):
+            # 计算输入索引
+            stk_idx = len(inputs) // 2
+            inputs.extend(["-i", sticker_path])
+
+            # 时间窗口
+            t_start = i * window
+            t_end = min(t_start + window - 0.5, back_duration)
+            if t_end <= t_start:
+                t_end = t_start + window
+
+            # 位置（像素）
+            x = int(w * pos[0])
+            y = int(h * pos[1])
+
+            # 透明度 50-80%
+            opacity = round(random.uniform(0.5, 0.8), 2)
+
+            next_label = f"[v3s{i}]"
+            # scale 贴纸 + 设置透明度 + overlay
+            filter_parts.append(
+                f"[{stk_idx}:v]scale={sticker_size}:{sticker_size},format=rgba,"
+                f"colorchannelmixer=aa={opacity}[stk{i}]"
+            )
+            filter_parts.append(
+                f"{current_label}[stk{i}]overlay=x={x}:y={y}:"
+                f"enable='between(t,{t_start:.1f},{t_end:.1f})'{next_label}"
+            )
+            current_label = next_label
+
+        logger.info(f"贴纸叠加: {count} 张, 尺寸 {sticker_size}px")
+        return filter_parts, current_label
 
 
 class VideoCompositor:
@@ -66,11 +165,35 @@ class VideoCompositor:
 
         return info
 
+    def _calc_back_end(self, duration: float, insert_at: float,
+                       effective_guide: float, max_duration: float) -> float:
+        """计算 back 段结束时间（两步截取）"""
+        # Step 1: 默认截尾 3-5s
+        tail_cut = random.uniform(*BACK_TAIL_CUT)
+        back_end = duration - tail_cut
+        # 确保 back 段至少有 5s
+        if back_end <= insert_at + 5:
+            back_end = duration  # 视频太短就不截尾了
+
+        logger.info(f"截尾: 剪去末尾 {tail_cut:.1f}s → back 结束于 {back_end:.1f}s")
+
+        # Step 2: 时长控制
+        if max_duration and max_duration > 0:
+            total = insert_at + effective_guide + (back_end - insert_at) + TAIL_RESERVE
+            if total > max_duration:
+                back_max = max_duration - insert_at - effective_guide - TAIL_RESERVE
+                if back_max > 5:  # 至少保留 5s
+                    back_end = insert_at + back_max
+                    logger.info(f"时长控制: back 段截取到 {back_max:.1f}s（目标 ≤ {max_duration}s）")
+
+        return back_end
+
     def composite(self, input_video: str, guide_video: str,
                   insert_at: float, output_path: str,
                   guide_duration: float = 0,
                   dedup: bool = True,
-                  insert_range: Optional[tuple[float, float]] = None) -> dict:
+                  insert_range: Optional[tuple[float, float]] = None,
+                  max_duration: float = 0) -> dict:
         """在原视频 insert_at 秒处插入引导视频
 
         参数:
@@ -81,6 +204,7 @@ class VideoCompositor:
             guide_duration: 截取引导视频前 N 秒（0=完整）
             dedup: 是否启用去重处理
             insert_range: 自适应插入范围 (min_t, max_t)，优先于 insert_at
+            max_duration: 最终视频最大时长（秒），0=不限制
         """
         if not os.path.isfile(input_video):
             return {"success": False, "error": f"输入视频不存在: {input_video}"}
@@ -93,6 +217,7 @@ class VideoCompositor:
         dedup_proc = VideoDedup() if dedup else None
         scene_detector = SceneDetector(self.ffprobe_path) if dedup and insert_range else None
         tail_anim = TailAnimation(self.ffmpeg_path) if dedup else None
+        sticker = StickerOverlay()
 
         try:
             logger.info(f"探测视频参数: {input_video}")
@@ -103,6 +228,10 @@ class VideoCompositor:
             duration = src_info["duration"]
 
             logger.info(f"原视频: {w}x{h}, {fps:.2f}fps, {duration:.1f}s, {sr}Hz")
+
+            # 获取引导视频时长
+            guide_info = self.get_video_info(guide_video)
+            effective_guide = guide_duration if guide_duration > 0 else guide_info["duration"]
 
             # 1. 自适应插入点
             if scene_detector and insert_range:
@@ -117,7 +246,11 @@ class VideoCompositor:
                 logger.info(f"原视频时长 ({duration:.1f}s) <= 插入点 ({insert_at}s)，将在末尾拼接")
                 return self._concat_at_end(input_video, guide_video, output_path,
                                            w, h, fps, sr, guide_duration,
-                                           dedup_proc, tail_anim)
+                                           dedup_proc, tail_anim, max_duration)
+
+            # 计算 back 段结束时间（截尾 + 时长控制）
+            back_end = self._calc_back_end(duration, insert_at, effective_guide, max_duration)
+            back_duration = back_end - insert_at
 
             # 2. 构建 filter_complex
             filter_parts = []
@@ -147,12 +280,26 @@ class VideoCompositor:
             if dedup_proc:
                 extra_v_filters, speed_ratio = dedup_proc.guide_dedup_filters()
                 guide_v_filters.extend(extra_v_filters)
-                # crop 会改变尺寸/SAR，需要 scale+pad+setsar 恢复
                 guide_v_filters.append(f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1")
                 guide_a_filters.append(dedup_proc.guide_audio_dedup_filter(speed_ratio))
                 logger.info(f"引导去重: eq/crop/speed 微调, 速度 {speed_ratio:.4f}x")
 
             guide_v_filters.append("setpts=PTS-STARTPTS")
+
+            # --- back 段 filter（截尾后） ---
+            back_v_label = "[v3]"
+            back_trim_v = f"[0:v]trim={insert_at}:{back_end},setpts=PTS-STARTPTS"
+            back_trim_a = f"[0:a]atrim={insert_at}:{back_end},asetpts=PTS-STARTPTS[a3]"
+
+            # 贴纸叠加：先输出到临时 label，再叠加贴纸
+            if sticker.available():
+                back_trim_v += "[v3raw]"
+                sticker_filters, back_v_label = sticker.build_overlay_filters(
+                    back_duration, w, h, "[v3raw]", inputs
+                )
+            else:
+                back_trim_v += "[v3]"
+                sticker_filters = []
 
             filter_parts.extend([
                 # 原视频前半段
@@ -161,10 +308,19 @@ class VideoCompositor:
                 # 引导视频（对齐+去重）
                 f"[1:v]{','.join(guide_v_filters)}[v2]",
                 f"[1:a]{','.join(guide_a_filters)}[a2]",
-                # 原视频后半段
-                f"[0:v]trim={insert_at},setpts=PTS-STARTPTS[v3]",
-                f"[0:a]atrim={insert_at},asetpts=PTS-STARTPTS[a3]",
+                # 原视频后半段（截尾后）
+                back_trim_v,
+                back_trim_a,
             ])
+
+            # 追加贴纸 filter
+            filter_parts.extend(sticker_filters)
+
+            # 如果贴纸改变了 v3 的 label，需要映射回 [v3]
+            if back_v_label != "[v3]":
+                # 重命名 label: 直接在最后一个 sticker filter 里已经输出了 back_v_label
+                # 需要用 null filter 映射
+                filter_parts.append(f"{back_v_label}null[v3]")
 
             # 3. 尾部动画
             tail_path = None
@@ -174,7 +330,7 @@ class VideoCompositor:
             if tail_anim:
                 tail_path = tail_anim.get_tail_source(w, h, sr, fps, settings.OVERLAY_DIR)
                 if tail_path:
-                    tail_idx = len(inputs) // 2  # input index (0-based)
+                    tail_idx = len(inputs) // 2
                     inputs.extend(["-i", tail_path])
                     tail_scale = f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2"
                     filter_parts.extend([
@@ -187,7 +343,6 @@ class VideoCompositor:
 
             # 4. concat
             if dedup_proc:
-                # concat → 整体去重 filter → 输出
                 final_filters = dedup_proc.final_dedup_filters()
                 final_v_chain = ",".join(final_filters)
                 filter_parts.append(
@@ -239,7 +394,8 @@ class VideoCompositor:
     def _concat_at_end(self, input_video: str, guide_video: str, output_path: str,
                        w: int, h: int, fps: float, sr: int,
                        guide_duration: float = 0,
-                       dedup_proc=None, tail_anim=None) -> dict:
+                       dedup_proc=None, tail_anim=None,
+                       max_duration: float = 0) -> dict:
         """原视频时长不足时，在末尾拼接引导视频"""
         guide_scale = f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2"
         inputs = ["-i", input_video, "-i", guide_video]
@@ -269,7 +425,6 @@ class VideoCompositor:
         if dedup_proc:
             extra_v, speed_ratio = dedup_proc.guide_dedup_filters()
             guide_v_filters.extend(extra_v)
-            # crop 会改变尺寸/SAR，需要 scale+pad+setsar 恢复
             guide_v_filters.append(f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1")
             guide_a_filters.append(dedup_proc.guide_audio_dedup_filter(speed_ratio))
 
@@ -344,7 +499,8 @@ class VideoCompositor:
                         insert_at: float, output_dir: str,
                         guide_duration: float = 0,
                         dedup: bool = True,
-                        insert_range: Optional[tuple[float, float]] = None) -> list[dict]:
+                        insert_range: Optional[tuple[float, float]] = None,
+                        max_duration: float = 0) -> list[dict]:
         """批量处理目录下所有视频"""
         os.makedirs(output_dir, exist_ok=True)
 
@@ -367,7 +523,8 @@ class VideoCompositor:
 
             result = self.composite(
                 input_path, guide_video, insert_at, output_path,
-                guide_duration, dedup=dedup, insert_range=insert_range
+                guide_duration, dedup=dedup, insert_range=insert_range,
+                max_duration=max_duration
             )
             results.append({**result, "input": filename})
 

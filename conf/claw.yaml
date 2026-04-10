@@ -1,0 +1,24 @@
+# 素材采集配置
+# 使用方式: python src/main.py claw --config conf/claw.yaml
+
+# 来源平台
+platform: douyin
+
+# 搜索关键词列表
+keywords:
+  # - "美食制作"
+  # - "旅行vlog"
+
+# 或提供链接列表
+urls:
+  # - "https://v.douyin.com/xxx1"
+  # - "https://v.douyin.com/xxx2"
+
+# 搜索参数
+count: 10          # 每个关键词采集数量
+sort_type: 0       # 0综合 1点赞 2最新
+content_type: 1    # 1视频 2图文
+
+# API 配置（也可在 conf/.env 中设置 DOUYIN_CLAW_API_BASE / DOUYIN_CLAW_API_KEY）
+# api_base: "https://api.itfaba.com"
+# api_key: "DK_xxx"

@@ -54,7 +54,10 @@ class Settings(BaseSettings):
     GUIDE_DIR: str = str(DATA_DIR / "guides")
     OUTPUT_DIR: str = str(DATA_DIR / "output")
     OVERLAY_DIR: str = str(DATA_DIR / "overlays")
+    STICKER_DIR: str = str(DATA_DIR / "stickers")
     DEFAULT_INSERT_AT: float = 10.0
+    DEFAULT_INSERT_RANGE: str = "10-20"     # insert_at 默认随机范围
+    DEFAULT_MAX_DURATION: float = 150       # 合成最大时长（秒），0=不限
     VIDEO_CODEC: str = "libx264"
     AUDIO_CODEC: str = "aac"
 
@@ -72,3 +75,4 @@ BIN_DIR.mkdir(parents=True, exist_ok=True)
 (DATA_DIR / "guides").mkdir(parents=True, exist_ok=True)
 (DATA_DIR / "output").mkdir(parents=True, exist_ok=True)
 (DATA_DIR / "overlays").mkdir(parents=True, exist_ok=True)
+(DATA_DIR / "stickers").mkdir(parents=True, exist_ok=True)

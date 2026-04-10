@@ -18,6 +18,12 @@ class DownloadCommand(BaseCommand):
         parser.add_argument("--urls-file", help="批量链接文件（每行一个 URL）")
         parser.add_argument("--output", help=f"输出目录（默认 {settings.DOWNLOAD_DIR}）")
         parser.add_argument("--cookies", help="cookies 文件路径（B站高画质需要）")
+        parser.add_argument("--cookies-from-browser",
+                            help="从浏览器读取 cookies（如 chrome/edge/safari/firefox）")
+        parser.add_argument("--cookie-header",
+                            help="原始 Cookie 字符串（浏览器请求头里的 'k=v; k2=v2'）")
+        parser.add_argument("--cookie-header-file",
+                            help="原始 Cookie 字符串文件路径（建议用于超长 cookie）")
         parser.add_argument("--quality", default="best",
                             choices=["best", "1080p", "720p"],
                             help="画质选择（默认 best）")
@@ -32,6 +38,9 @@ class DownloadCommand(BaseCommand):
         urls_file = self.merge_args(args, config, "urls_file")
         output_dir = self.merge_args(args, config, "output", settings.DOWNLOAD_DIR)
         cookies = self.merge_args(args, config, "cookies", "")
+        cookies_from_browser = self.merge_args(args, config, "cookies_from_browser", "")
+        cookie_header = self.merge_args(args, config, "cookie_header", "")
+        cookie_header_file = self.merge_args(args, config, "cookie_header_file", "")
         quality = self.merge_args(args, config, "quality", "best")
 
         # 从配置文件中读取 URL 列表
@@ -53,6 +62,14 @@ class DownloadCommand(BaseCommand):
         platform_config = config.get(source, {})
         if not cookies and platform_config.get("cookies"):
             cookies = platform_config["cookies"]
+        if not cookies_from_browser and platform_config.get("cookies_from_browser"):
+            cookies_from_browser = platform_config["cookies_from_browser"]
+        if not cookie_header and platform_config.get("cookie_header"):
+            cookie_header = platform_config["cookie_header"]
+        if not cookie_header_file and platform_config.get("cookie_header_file"):
+            cookie_header_file = platform_config["cookie_header_file"]
+        if not cookie_header and cookie_header_file:
+            cookie_header = self._read_cookie_header_file(cookie_header_file)
         if quality == "best" and platform_config.get("quality"):
             quality = platform_config["quality"]
 
@@ -62,7 +79,12 @@ class DownloadCommand(BaseCommand):
         print()
 
         downloader = get_downloader(source)
-        kwargs = {"cookies": cookies, "quality": quality}
+        kwargs = {
+            "cookies": cookies,
+            "cookies_from_browser": cookies_from_browser,
+            "cookie_header": cookie_header,
+            "quality": quality
+        }
 
         if len(urls) == 1:
             result = downloader.download(urls[0], output_dir, **kwargs)
@@ -93,3 +115,13 @@ class DownloadCommand(BaseCommand):
         except FileNotFoundError:
             print(f"  URL 文件不存在: {file_path}")
         return urls
+
+    def _read_cookie_header_file(self, file_path: str) -> str:
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        except FileNotFoundError:
+            print(f"  Cookie 文件不存在: {file_path}")
+        except Exception as e:
+            print(f"  读取 Cookie 文件失败: {e}")
+        return ""

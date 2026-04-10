@@ -73,6 +73,52 @@ class VideoRepository:
     def list_all(self, limit: int = 50) -> List[Video]:
         return self.db.query(Video).order_by(Video.id.desc()).limit(limit).all()
 
+    def get_by_source_vid(self, source_platform: str, source_vid: str) -> Optional[Video]:
+        """去重查询：按平台+视频ID"""
+        return self.db.query(Video).filter(
+            Video.source_platform == source_platform,
+            Video.source_vid == source_vid,
+        ).first()
+
+    def get_by_vid(self, source_vid: str) -> Optional[Video]:
+        """按 source_vid 查询（不限平台）"""
+        return self.db.query(Video).filter(
+            Video.source_vid == source_vid,
+        ).first()
+
+    def update_path(self, video_id: int, path: str, cover_path: str = None):
+        """下载完成后更新本地路径"""
+        video = self.get_by_id(video_id)
+        if video:
+            video.path = path
+            if cover_path:
+                video.cover_path = cover_path
+            self.db.commit()
+
+    def create_from_claw(self, title: str = None, description: str = None,
+                         tags: str = None, video_url: str = None,
+                         cover_url: str = None, source_url: str = None,
+                         source_platform: str = None, source_vid: str = None,
+                         raw_data: str = None, published_at=None) -> Video:
+        """采集入库（无本地文件，仅元数据）"""
+        video = Video(
+            path="",
+            title=title,
+            description=description,
+            tags=tags,
+            video_url=video_url,
+            cover_url=cover_url,
+            source_url=source_url,
+            source_platform=source_platform,
+            source_vid=source_vid,
+            raw_data=raw_data,
+            published_at=published_at,
+        )
+        self.db.add(video)
+        self.db.commit()
+        self.db.refresh(video)
+        return video
+
 class TaskRepository:
     def __init__(self, db: Session):
         self.db = db
