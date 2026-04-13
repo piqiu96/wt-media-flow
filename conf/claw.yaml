@@ -6,8 +6,9 @@ platform: douyin
 
 # 搜索关键词列表
 keywords:
-  # - "美食制作"
-  # - "旅行vlog"
+  - "三角洲行动 活动"
+  # - "三角洲行动 攻略"
+  # - "三角洲行动 最新"
 
 # 或提供链接列表
 urls:
@@ -15,10 +16,7 @@ urls:
   # - "https://v.douyin.com/xxx2"
 
 # 搜索参数
-count: 10          # 每个关键词采集数量
+count: 30          # 每个关键词采集数量
 sort_type: 0       # 0综合 1点赞 2最新
 content_type: 1    # 1视频 2图文
 
-# API 配置（也可在 conf/.env 中设置 DOUYIN_CLAW_API_BASE / DOUYIN_CLAW_API_KEY）
-# api_base: "https://api.itfaba.com"
-# api_key: "DK_xxx"

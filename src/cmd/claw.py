@@ -18,8 +18,15 @@ class ClawCommand(BaseCommand):
         parser.add_argument("--sort-type", type=int, default=0,
                             choices=[0, 1, 2],
                             help="排序（0 综合 / 1 点赞 / 2 最新，默认 0）")
+        parser.add_argument("--publish-time", type=int, default=1,
+                            choices=[0, 1, 7, 182],
+                            help="发布时间筛选（0 不限 / 1 一天 / 7 七天 / 182 半年，默认 1）")
+        parser.add_argument("--filter-duration", type=str, default="1-5",
+                            help="视频时长筛选（'0-1' 1分钟以下 / '1-5' 1-5分钟 / '5-10000' 5分钟以上，默认 '1-5'）")
         parser.add_argument("--dry-run", action="store_true",
                             help="只展示搜索结果不入库")
+        parser.add_argument("--category", "-c", default="",
+                            help="分类标签（如 '游戏'），用于目录分类存储")
         parser.add_argument("--config", help="YAML 配置文件路径")
 
     def execute(self, args) -> dict:
@@ -34,14 +41,17 @@ class ClawCommand(BaseCommand):
         urls_file = self.merge_args(args, config, "urls_file")
         count = self.merge_args(args, config, "count", 10)
         sort_type = self.merge_args(args, config, "sort_type", 0)
+        publish_time = self.merge_args(args, config, "publish_time", 1)
+        filter_duration = self.merge_args(args, config, "filter_duration", "1-5")
         content_type = config.get("content_type", 1)
         dry_run = getattr(args, "dry_run", False)
+        category = self.merge_args(args, config, "category", "")
 
         # 从配置文件读取关键词和链接列表
         keywords = config.get("keywords", [])
         if keyword:
             keywords.append(keyword)
-        urls = config.get("urls", [])
+        urls = config.get("urls") or []
         if url:
             urls.append(url)
         if urls_file:
@@ -65,7 +75,9 @@ class ClawCommand(BaseCommand):
             print(f"搜索关键词: {kw} (数量: {count}, 排序: {sort_type})")
             try:
                 items = api.search(kw, count=count, sort_type=sort_type,
-                                   content_type=content_type)
+                                   content_type=content_type,
+                                   publish_time=publish_time,
+                                   filter_duration=filter_duration)
                 print(f"  找到 {len(items)} 条结果")
                 all_items.extend(items)
             except Exception as e:
@@ -106,7 +118,7 @@ class ClawCommand(BaseCommand):
         # 入库
         print()
         processor = ClawProcessor()
-        stats = processor.run(all_items)
+        stats = processor.run(all_items, category=category)
 
         print(f"\n采集完成:")
         print(f"  总计: {stats['total']}")

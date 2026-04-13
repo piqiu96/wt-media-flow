@@ -7,13 +7,14 @@ from db.repositories import VideoRepository
 
 
 class ClawProcessor:
-    def run(self, items: list[dict], platform: str = "douyin") -> dict:
+    def run(self, items: list[dict], platform: str = "douyin", category: str = "") -> dict:
         """
         批量素材入库。
 
         Args:
             items: DouyinApi 返回的标准化 dict 列表
             platform: 来源平台
+            category: 分类标签（如 '游戏'）
 
         Returns:
             {"total": N, "added": N, "skipped": N, "failed": N}
@@ -57,6 +58,7 @@ class ClawProcessor:
                         source_vid=vid,
                         raw_data=raw_data_str,
                         published_at=published_at,
+                        category=category,
                     )
                     print(f"  [{i}/{len(items)}] 入库成功: {vid} - {title[:40]} (id={video.id})")
                     stats["added"] += 1

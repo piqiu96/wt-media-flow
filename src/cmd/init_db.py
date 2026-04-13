@@ -29,6 +29,12 @@ class InitCommand(BaseCommand):
             "ALTER TABLE videos ADD COLUMN cover_url TEXT",
             "ALTER TABLE videos ADD COLUMN raw_data TEXT",
             "ALTER TABLE videos ADD COLUMN published_at DATETIME",
+            "ALTER TABLE videos ADD COLUMN category VARCHAR(50) DEFAULT ''",
+            # accounts 表新字段
+            "ALTER TABLE accounts ADD COLUMN browser_id INTEGER",
+            "ALTER TABLE accounts ADD COLUMN profile_id VARCHAR(100)",
+            "ALTER TABLE accounts ADD COLUMN name VARCHAR(200)",
+            "ALTER TABLE accounts ADD COLUMN tag VARCHAR(100)",
         ]
         with engine.connect() as conn:
             for sql in migrations:

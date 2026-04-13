@@ -1,7 +1,42 @@
 from typing import List, Optional
 from datetime import datetime, timedelta
+import json
 from sqlalchemy.orm import Session
-from .models import Account, Video, PublishTask, TaskLog, TaskStatusEnum, TaskTypeEnum
+from .models import Account, Video, PublishTask, TaskLog, TaskStatusEnum, TaskTypeEnum, VideoTask, VideoTaskStatusEnum
+
+from typing import List, Optional
+from datetime import datetime, timedelta
+import json
+from sqlalchemy.orm import Session
+from .models import Account, Browser, Video, PublishTask, TaskLog, TaskStatusEnum, TaskTypeEnum, VideoTask, VideoTaskStatusEnum
+
+
+class BrowserRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def create(self, profile_id: str, seq: int = None, name: str = None) -> Browser:
+        browser = Browser(profile_id=profile_id, seq=seq, name=name)
+        self.db.add(browser)
+        self.db.commit()
+        self.db.refresh(browser)
+        return browser
+
+    def get_by_id(self, browser_id: int) -> Optional[Browser]:
+        return self.db.query(Browser).filter(Browser.id == browser_id).first()
+
+    def get_by_profile_id(self, profile_id: str) -> Optional[Browser]:
+        return self.db.query(Browser).filter(Browser.profile_id == profile_id).first()
+
+    def list_all(self) -> List[Browser]:
+        return self.db.query(Browser).order_by(Browser.seq.asc()).all()
+
+    def update_status(self, browser_id: int, status: str):
+        b = self.get_by_id(browser_id)
+        if b:
+            b.status = status
+            self.db.commit()
+
 
 class AccountRepository:
     def __init__(self, db: Session):
@@ -19,15 +54,20 @@ class AccountRepository:
     def get_active_accounts(self) -> List[Account]:
         return self.db.query(Account).filter(Account.status == "active").all()
 
-    def get_by_profile_id(self, profile_id: str) -> Optional[Account]:
-        return self.db.query(Account).filter(Account.profile_id == profile_id).first()
+    def get_by_browser_id(self, browser_id: int) -> List[Account]:
+        return self.db.query(Account).filter(Account.browser_id == browser_id).all()
 
-    def create(self, platform: str, username: str, profile_id: str,
-               group_id: str = None, daily_limit: int = 3, is_new: bool = True) -> Account:
+    def create(self, browser_id: int, platform: str, profile_id: str = None,
+               name: str = None, username: str = None, tag: str = None,
+               group_id: str = None, daily_limit: int = 3,
+               is_new: bool = True) -> Account:
         account = Account(
-            platform=platform,
-            username=username,
+            browser_id=browser_id,
             profile_id=profile_id,
+            platform=platform,
+            name=name,
+            username=username,
+            tag=tag,
             group_id=group_id,
             is_new=is_new,
             daily_limit=daily_limit,
@@ -99,13 +139,15 @@ class VideoRepository:
                          tags: str = None, video_url: str = None,
                          cover_url: str = None, source_url: str = None,
                          source_platform: str = None, source_vid: str = None,
-                         raw_data: str = None, published_at=None) -> Video:
+                         raw_data: str = None, published_at=None,
+                         category: str = None) -> Video:
         """采集入库（无本地文件，仅元数据）"""
         video = Video(
             path="",
             title=title,
             description=description,
             tags=tags,
+            category=category or "",
             video_url=video_url,
             cover_url=cover_url,
             source_url=source_url,
@@ -176,3 +218,113 @@ class LogRepository:
         log = TaskLog(task_id=task_id, level=level, message=message)
         self.db.add(log)
         self.db.commit()
+
+
+class VideoTaskRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def create(self, video_id: int, title: str = None, tags: str = None,
+               cover_url: str = None, video_url: str = None,
+               guide_path: str = None) -> VideoTask:
+        task = VideoTask(
+            video_id=video_id,
+            title=title,
+            tags=tags,
+            cover_url=cover_url,
+            video_url=video_url,
+            guide_path=guide_path,
+            status=VideoTaskStatusEnum.PENDING,
+        )
+        self.db.add(task)
+        self.db.commit()
+        self.db.refresh(task)
+        return task
+
+    def get_by_id(self, task_id: int) -> Optional[VideoTask]:
+        return self.db.query(VideoTask).filter(VideoTask.id == task_id).first()
+
+    def get_by_video_id(self, video_id: int) -> Optional[VideoTask]:
+        return self.db.query(VideoTask).filter(
+            VideoTask.video_id == video_id
+        ).order_by(VideoTask.id.desc()).first()
+
+    def start_composite(self, task_id: int):
+        """PENDING → COMPOSITING，写入 started_at"""
+        task = self.get_by_id(task_id)
+        if task:
+            task.status = VideoTaskStatusEnum.COMPOSITING
+            task.started_at = datetime.utcnow()
+            self.db.commit()
+
+    def complete_composite(self, task_id: int, output_path: str,
+                           detail_update: dict = None):
+        """COMPOSITING → COMPOSITED，填充 output_path"""
+        task = self.get_by_id(task_id)
+        if task:
+            task.status = VideoTaskStatusEnum.COMPOSITED
+            task.output_path = output_path
+            if detail_update:
+                self.append_detail(task_id, detail_update)
+            self.db.commit()
+
+    def start_publish(self, task_id: int, account_id: int):
+        """COMPOSITED → PUBLISHING"""
+        task = self.get_by_id(task_id)
+        if task:
+            task.status = VideoTaskStatusEnum.PUBLISHING
+            task.account_id = account_id
+            self.db.commit()
+
+    def complete_publish(self, task_id: int, published_url: str = None,
+                         detail_update: dict = None):
+        """PUBLISHING → SUCCESS，写入 completed_at"""
+        task = self.get_by_id(task_id)
+        if task:
+            task.status = VideoTaskStatusEnum.SUCCESS
+            task.published_url = published_url
+            task.completed_at = datetime.utcnow()
+            if detail_update:
+                self.append_detail(task_id, detail_update)
+            self.db.commit()
+
+    def fail(self, task_id: int, message: str, detail_update: dict = None):
+        """→ FAILED，写入 message + completed_at"""
+        task = self.get_by_id(task_id)
+        if task:
+            task.status = VideoTaskStatusEnum.FAILED
+            task.message = message
+            task.completed_at = datetime.utcnow()
+            if detail_update:
+                self.append_detail(task_id, detail_update)
+            self.db.commit()
+
+    def append_detail(self, task_id: int, patch: dict):
+        """将 patch 合并写入 detail JSON 字段"""
+        task = self.get_by_id(task_id)
+        if not task:
+            return
+        existing = {}
+        if task.detail:
+            try:
+                existing = json.loads(task.detail)
+            except (json.JSONDecodeError, TypeError):
+                existing = {}
+        existing.update(patch)
+        task.detail = json.dumps(existing, ensure_ascii=False)
+        self.db.commit()
+
+    def get_pending_composite(self, limit: int = 10) -> List[VideoTask]:
+        """查 status=pending 的待合成任务"""
+        return self.db.query(VideoTask).filter(
+            VideoTask.status == VideoTaskStatusEnum.PENDING
+        ).order_by(VideoTask.id.asc()).limit(limit).all()
+
+    def get_pending_publish(self, limit: int = 10) -> List[VideoTask]:
+        """查 status=composited 的待发布任务"""
+        return self.db.query(VideoTask).filter(
+            VideoTask.status == VideoTaskStatusEnum.COMPOSITED
+        ).order_by(VideoTask.id.asc()).limit(limit).all()
+
+    def list_recent(self, limit: int = 50) -> List[VideoTask]:
+        return self.db.query(VideoTask).order_by(VideoTask.id.desc()).limit(limit).all()
