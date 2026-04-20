@@ -44,6 +44,9 @@ class CompositeCommand(BaseCommand):
         parser.add_argument("--account-id", type=int, default=None,
                             help="自动发布的账号 ID（--auto-publish 必填）")
         parser.add_argument("--config", help="YAML 配置文件路径")
+        parser.add_argument("--recomposite", type=int, metavar="DAYS",
+                            help="重新合成最近 N 天 published_at 的视频（覆盖旧合成记录）")
+        parser.add_argument("--category", help="品类过滤（配合 --recomposite 使用）")
 
     def _resolve_insert_at(self, args, config) -> tuple[float, tuple | None]:
         """解析 insert_at / insert_range，返回 (insert_at, insert_range)
@@ -85,7 +88,15 @@ class CompositeCommand(BaseCommand):
         vid = self.merge_args(args, config, "vid")
         vids = getattr(args, "vids", None) or config.get("vids")
         input_path = self.merge_args(args, config, "input_path") or config.get("input_dir") or config.get("input_file")
-        guide = self.merge_args(args, config, "guide") or config.get("guide_video")
+        # 引导视频解析：--guide > guide_by_category[category] > guide_video（全局默认）
+        category_for_guide = getattr(args, "category", None) or config.get("category")
+        guide_by_cat = config.get("guide_by_category", {})
+        if getattr(args, "guide", None):
+            guide = args.guide
+        elif category_for_guide and category_for_guide in guide_by_cat:
+            guide = guide_by_cat[category_for_guide]
+        else:
+            guide = config.get("guide_video")
         guide_duration = self.merge_args(args, config, "guide_duration") or config.get("guide_duration", 0)
         output_dir = self.merge_args(args, config, "output") or config.get("output_dir", settings.OUTPUT_DIR)
 
@@ -109,6 +120,23 @@ class CompositeCommand(BaseCommand):
         workers = getattr(args, "workers", 1) or config.get("workers", 1)
         auto_publish = getattr(args, "auto_publish", False) or config.get("auto_publish", False)
         account_id = getattr(args, "account_id", None) or config.get("account_id")
+
+        # --recomposite 重新合成模式
+        recomposite_days = getattr(args, "recomposite", None)
+        if recomposite_days:
+            category = getattr(args, "category", None)
+            return self._recomposite_recent(
+                days=recomposite_days,
+                category=category,
+                guide=guide,
+                insert_at=insert_at,
+                output_dir=output_dir,
+                guide_duration=guide_duration,
+                dedup=dedup,
+                insert_range=insert_range,
+                max_duration=max_duration,
+                workers=workers,
+            )
 
         # --vids 批量模式
         if vids:
@@ -227,7 +255,8 @@ class CompositeCommand(BaseCommand):
                           guide_duration: float, dedup: bool,
                           insert_range, max_duration: float,
                           auto_publish: bool = False,
-                          account_id: int = None) -> dict:
+                          account_id: int = None,
+                          existing_task_id: int = None) -> dict:
         """通过 source_vid 从素材库查询，下载远程视频后合成"""
         from db.database import SessionLocal
         from db.repositories import VideoRepository, VideoTaskRepository
@@ -247,15 +276,23 @@ class CompositeCommand(BaseCommand):
             title = video.title or ""
             print(f"素材: {title[:60] if title else vid}")
 
-            # 创建 VideoTask 记录
-            vt = vt_repo.create(
-                video_id=video.id,
-                title=video.title,
-                tags=video.tags,
-                cover_url=video.cover_url,
-                video_url=video.video_url,
-                guide_path=guide,
-            )
+            # 创建或复用 VideoTask 记录
+            if existing_task_id:
+                vt = vt_repo.get_by_id(existing_task_id)
+                # 刷新快照字段（可能有新的 url）
+                vt.guide_path = guide
+                db.commit()
+            else:
+                vt = vt_repo.create(
+                    video_id=video.id,
+                    title=video.title,
+                    tags=video.tags,
+                    cover_url=video.cover_url,
+                    video_url=video.video_url,
+                    guide_path=guide,
+                    category=video.category or "",
+                    source_vid=video.source_vid,
+                )
             vt_repo.start_composite(vt.id)
 
             input_path = self._download_video(video, vid, repo)
@@ -363,5 +400,114 @@ class CompositeCommand(BaseCommand):
         return {
             "success": success_count > 0,
             "message": f"批量合成: {success_count}/{len(results)} 成功",
+            "results": results,
+        }
+
+    def _recomposite_recent(self, days: int, category: str,
+                            guide: str, insert_at: float, output_dir: str,
+                            guide_duration: float, dedup: bool,
+                            insert_range, max_duration: float,
+                            workers: int = 1) -> dict:
+        """重新合成最近 N 天 published_at 的视频，原地覆盖旧 VideoTask"""
+        from db.database import SessionLocal
+        from db.repositories import VideoRepository, VideoTaskRepository
+        from db.models import VideoTaskStatusEnum
+
+        if not guide:
+            return {"success": False, "message": "请指定 --guide（引导视频路径）"}
+
+        db = SessionLocal()
+        try:
+            vt_repo = VideoTaskRepository(db)
+            pairs = vt_repo.get_videos_for_recomposite(days=days, category=category)
+        finally:
+            db.close()
+
+        if not pairs:
+            msg = f"最近 {days} 天内无符合条件的视频"
+            if category:
+                msg += f"（品类: {category}）"
+            print(msg)
+            return {"success": True, "message": msg, "results": []}
+
+        cat_label = f" [{category}]" if category else ""
+        print(f"找到 {len(pairs)} 条视频（最近 {days} 天 published_at{cat_label}），开始重新合成...")
+
+        skip_count = 0
+        todo_vids = []        # (vid, existing_task_id | None)
+
+        for video, task in pairs:
+            vid = video.source_vid
+            if task is None:
+                todo_vids.append((vid, None))
+                continue
+
+            # 正在合成中，跳过
+            if task.status == VideoTaskStatusEnum.COMPOSITING:
+                print(f"[跳过] vid={vid} 合成中（task_id={task.id}）")
+                skip_count += 1
+                continue
+
+            # 被活跃 plan_item 引用，跳过
+            db2 = SessionLocal()
+            try:
+                vt_repo2 = VideoTaskRepository(db2)
+                referenced = vt_repo2.is_referenced_by_active_plan(task.id)
+                if referenced:
+                    print(f"[跳过] vid={vid} 已在发布计划中（task_id={task.id}）")
+                    skip_count += 1
+                    continue
+                # 安全，重置
+                vt_repo2.reset_for_recomposite(task.id)
+            finally:
+                db2.close()
+
+            todo_vids.append((vid, task.id))
+
+        if not todo_vids:
+            return {"success": True, "message": f"全部 {skip_count} 条视频已跳过", "results": []}
+
+        print(f"将重新合成 {len(todo_vids)} 条，跳过 {skip_count} 条\n")
+
+        def _do_one(i: int, vid: str, existing_task_id) -> dict:
+            print(f"\n--- [{i}/{len(todo_vids)}] vid={vid} ---")
+            cur_insert_at = insert_at
+            if not insert_range:
+                try:
+                    parts = settings.DEFAULT_INSERT_RANGE.split("-")
+                    cur_insert_at = round(random.uniform(float(parts[0]), float(parts[1])), 2)
+                except (ValueError, IndexError):
+                    pass
+            result = self._composite_by_vid(
+                vid, guide, cur_insert_at, output_dir, guide_duration,
+                dedup, insert_range, max_duration,
+                existing_task_id=existing_task_id,
+            )
+            result["vid"] = vid
+            status = "成功" if result.get("success") else "失败"
+            logger.info(f"  [{i}/{len(todo_vids)}] {status}: {vid}")
+            return result
+
+        results = []
+        if workers and workers > 1:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = {executor.submit(_do_one, i, vid, tid): vid
+                           for i, (vid, tid) in enumerate(todo_vids, 1)}
+                for future in as_completed(futures):
+                    try:
+                        results.append(future.result())
+                    except Exception as e:
+                        vid = futures[future]
+                        logger.error(f"vid={vid} 合成异常: {e}")
+                        results.append({"success": False, "vid": vid, "error": str(e)})
+        else:
+            for i, (vid, tid) in enumerate(todo_vids, 1):
+                results.append(_do_one(i, vid, tid))
+
+        success_count = sum(1 for r in results if r.get("success"))
+        print(f"\n重新合成完成: {success_count}/{len(results)} 成功，{skip_count} 条跳过")
+        return {
+            "success": success_count > 0,
+            "message": f"重新合成: {success_count}/{len(results)} 成功，{skip_count} 条跳过",
             "results": results,
         }

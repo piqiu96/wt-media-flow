@@ -25,8 +25,14 @@ class ClawCommand(BaseCommand):
                             help="视频时长筛选（'0-1' 1分钟以下 / '1-5' 1-5分钟 / '5-10000' 5分钟以上，默认 '1-5'）")
         parser.add_argument("--dry-run", action="store_true",
                             help="只展示搜索结果不入库")
-        parser.add_argument("--category", "-c", default="",
-                            help="分类标签（如 '游戏'），用于目录分类存储")
+        parser.add_argument("--fetch", action="store_true",
+                            help="只入库元数据，不下载视频文件（两阶段第一步）")
+        parser.add_argument("--download", action="store_true",
+                            help="只下载库中 pending 视频，不做搜索（两阶段第二步）")
+        parser.add_argument("--retry-failed", action="store_true",
+                            help="配合 --download：将 failed 视频重置为 pending 后重试（需人工确认）")
+        parser.add_argument("--category", "-c", required=False,
+                            help="游戏品类，--download 时可只传此参数")
         parser.add_argument("--config", help="YAML 配置文件路径")
 
     def execute(self, args) -> dict:
@@ -35,20 +41,81 @@ class ClawCommand(BaseCommand):
 
         config = self.load_config(args)
 
-        # 合并参数
+        download_only = getattr(args, "download", False)
+        fetch_only    = getattr(args, "fetch", False)
+        retry_failed  = getattr(args, "retry_failed", False)
+        category      = self.merge_args(args, config, "category", "")
+
+        # ── 模式一：--download  只下载 pending 视频 ──────────────────────────
+        if download_only:
+            if retry_failed:
+                from db.database import SessionLocal
+                from db.repositories import VideoRepository
+                db = SessionLocal()
+                try:
+                    repo = VideoRepository(db)
+                    failed = repo.get_failed_claw(category=category)
+                    if not failed:
+                        print("没有下载失败的视频")
+                        return {"success": True, "message": "没有失败视频"}
+                    print(f"\n以下 {len(failed)} 条视频下载失败，将重置后重试：")
+                    for v in failed:
+                        print(f"  [{v.id}] {(v.title or v.source_vid or '')[:50]}  错误: {v.claw_error or '未知'}")
+                    confirm = input("\n是否全部重置并重新下载？(y/N): ").strip().lower()
+                    if confirm != "y":
+                        print("已取消")
+                        return {"success": True, "message": "已取消重试"}
+                finally:
+                    db.close()
+
+            processor = ClawProcessor()
+            result = processor.download_pending(
+                category=category or None,
+                retry_failed=retry_failed,
+            )
+            print(f"\n下载完成: 成功 {result['done']}，失败 {result['failed']}")
+            return {
+                "success": result["done"] > 0 or result["total"] == 0,
+                "message": f"下载成功 {result['done']}，失败 {result['failed']}",
+                **result,
+            }
+
+        # ── 公共：category 校验（非 --download 模式才强制校验）──────────────
+        from pathlib import Path
+        import yaml as _yaml
+        _cat_path = Path("conf/categories.yaml")
+        if _cat_path.exists():
+            with open(_cat_path, encoding="utf-8") as _f:
+                valid_keys = (_yaml.safe_load(_f) or {}).get("categories", [])
+            if not category:
+                return {"success": False, "message": f"--category 必填，有效值: {valid_keys}"}
+            if category not in valid_keys:
+                return {"success": False,
+                        "message": f"--category '{category}' 无效，有效值: {valid_keys}"}
+
+        # 合并其余参数
         keyword = self.merge_args(args, config, "keyword")
         url = self.merge_args(args, config, "url")
         urls_file = self.merge_args(args, config, "urls_file")
-        count = self.merge_args(args, config, "count", 10)
-        sort_type = self.merge_args(args, config, "sort_type", 0)
-        publish_time = self.merge_args(args, config, "publish_time", 1)
-        filter_duration = self.merge_args(args, config, "filter_duration", "1-5")
+        if config:
+            count = config.get("count", 10)
+            sort_type = config.get("sort_type", 0)
+            publish_time = config.get("publish_time", 1)
+            filter_duration = config.get("filter_duration", "1-5")
+        else:
+            count = getattr(args, "count", 10)
+            sort_type = getattr(args, "sort_type", 0)
+            publish_time = getattr(args, "publish_time", 1)
+            filter_duration = getattr(args, "filter_duration", "1-5")
         content_type = config.get("content_type", 1)
         dry_run = getattr(args, "dry_run", False)
-        category = self.merge_args(args, config, "category", "")
 
-        # 从配置文件读取关键词和链接列表
-        keywords = config.get("keywords", [])
+        # 关键词
+        kw_by_cat = config.get("keywords_by_category", {})
+        if kw_by_cat and category and category in kw_by_cat:
+            keywords = list(kw_by_cat[category])
+        else:
+            keywords = config.get("keywords", [])
         if keyword:
             keywords.append(keyword)
         urls = config.get("urls") or []
@@ -67,10 +134,8 @@ class ClawCommand(BaseCommand):
         except Exception as e:
             return {"success": False, "message": str(e)}
 
-        # 采集素材
+        # 搜索
         all_items = []
-
-        # 搜索关键词
         for kw in keywords:
             print(f"搜索关键词: {kw} (数量: {count}, 排序: {sort_type})")
             try:
@@ -83,7 +148,6 @@ class ClawCommand(BaseCommand):
             except Exception as e:
                 print(f"  搜索失败: {e}")
 
-        # 链接获取
         for u in urls:
             print(f"获取链接: {u}")
             try:
@@ -101,7 +165,7 @@ class ClawCommand(BaseCommand):
 
         print(f"\n共采集到 {len(all_items)} 条素材")
 
-        # dry-run 模式：展示结果
+        # dry-run
         if dry_run:
             print("\n[dry-run] 素材列表:")
             for i, item in enumerate(all_items, 1):
@@ -118,14 +182,29 @@ class ClawCommand(BaseCommand):
         # 入库
         print()
         processor = ClawProcessor()
-        stats = processor.run(all_items, category=category)
 
+        # ── 模式二：--fetch  只入库，不下载 ─────────────────────────────────
+        if fetch_only:
+            stats = processor.ingest(all_items, category=category)
+            print(f"\n入库完成（未下载）:")
+            print(f"  总计: {stats['total']}")
+            print(f"  新增: {stats['added']}")
+            print(f"  跳过(重复): {stats['skipped']}")
+            print(f"  失败: {stats['failed']}")
+            return {
+                "success": stats["added"] > 0 or stats["skipped"] > 0,
+                "message": f"入库 {stats['added']}，跳过 {stats['skipped']}，失败 {stats['failed']}（未下载）",
+                "stats": stats,
+            }
+
+        # ── 模式三（默认）：入库 + 下载 ──────────────────────────────────────
+        stats = processor.run(all_items, category=category)
         print(f"\n采集完成:")
         print(f"  总计: {stats['total']}")
         print(f"  新增: {stats['added']}")
         print(f"  跳过(重复): {stats['skipped']}")
         print(f"  失败: {stats['failed']}")
-
+        print(f"  已下载: {stats['downloaded']}")
         return {
             "success": stats["added"] > 0 or stats["skipped"] > 0,
             "message": f"新增 {stats['added']}，跳过 {stats['skipped']}，失败 {stats['failed']}",

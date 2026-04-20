@@ -27,6 +27,12 @@ class BasePlatform(ABC):
         """
         pass
 
+    def fill_only(self, video_path: str, title: str,
+                  description: str = "", tags: str = "",
+                  cover_path: Optional[str] = None) -> Dict[str, Any]:
+        """阶段1：只填充内容（不等待人工确认），默认 fallback 到 upload_video"""
+        return self.upload_video(video_path, title, description, tags, cover_path)
+
     def comment(self, content: str) -> Dict[str, Any]:
         """发表评论（可选功能）"""
         return {"success": False, "error": "not_implemented"}

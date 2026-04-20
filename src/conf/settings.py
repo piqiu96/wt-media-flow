@@ -28,18 +28,9 @@ class Settings(BaseSettings):
     LOG_MAX_BYTES: int = 10 * 1024 * 1024  # 10MB
     LOG_BACKUP_COUNT: int = 5
 
-    # 调度配置
-    SCHEDULER_INTERVAL: int = 30  # 秒
-    MAX_CONCURRENT_TASKS: int = 3
-    TASK_RETRY_LIMIT: int = 3
-
     # 发布时间配置
     PUBLISH_START_HOUR: int = 8
     PUBLISH_END_HOUR: int = 23
-
-    # 浏览器池配置
-    BROWSER_POOL_SIZE: int = 5
-    BROWSER_IDLE_TIMEOUT: int = 600  # 秒
 
     # 外部工具路径（为空则自动查找 bin/ 或系统 PATH）
     BIN_DIR: Path = BIN_DIR
@@ -49,6 +40,9 @@ class Settings(BaseSettings):
     # 下载默认配置
     DOWNLOAD_DIR: str = str(DATA_DIR / "downloads")
     DOWNLOAD_TIMEOUT: int = 300  # 秒
+
+    # 企微机器人通知（空字符串则跳过通知）
+    WECOM_WEBHOOK_URL: str = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=8e535f94-9ff5-441b-9ef7-ff390655d58a"
 
     # 合成默认配置
     GUIDE_DIR: str = str(DATA_DIR / "guides")

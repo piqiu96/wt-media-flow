@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey, Enum
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey, Enum, Date
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
@@ -11,24 +11,32 @@ class PlatformEnum(str, enum.Enum):
     BAIJIAHAO = "baijiahao"
     XIAOHONGSHU = "xiaohongshu"
 
-class TaskStatusEnum(str, enum.Enum):
-    PENDING = "pending"
-    RUNNING = "running"
-    SUCCESS = "success"
-    FAILED = "failed"
-
-class TaskTypeEnum(str, enum.Enum):
-    PUBLISH = "publish"
-    COMMENT = "comment"
-    LIKE = "like"
-
 class VideoTaskStatusEnum(str, enum.Enum):
     PENDING     = "pending"      # 待处理
     COMPOSITING = "compositing"  # 合成中
-    COMPOSITED  = "composited"   # 合成完成，待发布
+    COMPOSITED  = "composited"   # 合成完成（终态，发布由 plan_items 管理）
     PUBLISHING  = "publishing"   # 发布中
     SUCCESS     = "success"      # 发布成功
-    FAILED      = "failed"       # 失败（合成或发布阶段均可）
+    FAILED      = "failed"       # 合成/发布失败
+
+
+class PlanItemStatusEnum(str, enum.Enum):
+    PENDING    = "pending"     # 待执行
+    PUBLISHING = "publishing"  # 发布中
+    PUBLISHED  = "published"   # 发布成功（已回填 published_url）
+    FAILED     = "failed"      # 失败
+
+
+class CommentTaskStatusEnum(str, enum.Enum):
+    PENDING    = "pending"     # 待评论
+    COMMENTING = "commenting"  # 评论中
+    DONE       = "done"        # 完成
+    FAILED     = "failed"      # 失败
+
+class ClawStatusEnum(str, enum.Enum):
+    PENDING = "pending"  # 已入库，待下载
+    DONE    = "done"     # 已下载到本地
+    FAILED  = "failed"   # 下载失败
 
 class Browser(Base):
     """比特浏览器容器表：一个容器可挂多个平台账号"""
@@ -88,32 +96,21 @@ class Video(Base):
     # 原视频发布时间
     published_at = Column(DateTime, nullable=True)
 
+    # 原视频热度统计（采集时写入）
+    like_count    = Column(Integer, default=0)   # 点赞数
+    collect_count = Column(Integer, default=0)   # 收藏数
+    comment_count = Column(Integer, default=0)   # 评论数
+
     # 原始 API 响应
     raw_data = Column(Text, nullable=True)
 
-class PublishTask(Base):
-    __tablename__ = "publish_tasks"
+    # 文件是否已删除（cleanup 命令执行后标记）
+    deleted = Column(Boolean, default=False)
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False)
-    video_id = Column(Integer, ForeignKey("videos.id"), nullable=False)
-    task_type = Column(Enum(TaskTypeEnum), default=TaskTypeEnum.PUBLISH)
-    status = Column(Enum(TaskStatusEnum), default=TaskStatusEnum.PENDING)
-    schedule_time = Column(DateTime, nullable=True)
-    retry_count = Column(Integer, default=0)
-    started_at = Column(DateTime, nullable=True)
-    completed_at = Column(DateTime, nullable=True)
-    error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-class TaskLog(Base):
-    __tablename__ = "task_logs"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    task_id = Column(Integer, ForeignKey("publish_tasks.id"), nullable=False)
-    level = Column(String(20), default="INFO")
-    message = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    # 采集下载状态（两阶段采集用）
+    claw_status   = Column(String(20), default=ClawStatusEnum.PENDING)  # pending / done / failed
+    claw_error    = Column(Text, nullable=True)                          # 失败原因
+    downloaded_at = Column(DateTime, nullable=True)                      # 下载完成时间
 
 
 class VideoTask(Base):
@@ -140,11 +137,70 @@ class VideoTask(Base):
     detail      = Column(Text, nullable=True)          # JSON：执行过程中间状态快照
                                                        # {"download_size_mb":9.5,"output_size_mb":15.8,...}
 
+    # 去重用冗余字段（来自 videos.source_vid，合成时写入）
+    source_vid      = Column(String(200), nullable=True, index=True)
+
     # 发布信息
     account_id      = Column(Integer, ForeignKey("accounts.id"), nullable=True)
     published_url   = Column(String(500), nullable=True)  # 发布成功后的视频链接
+    category        = Column(String(50), nullable=True, default="")  # 游戏品类（来自 video.category）
 
     # 时间节点（只记录整体开始/结束）
     started_at  = Column(DateTime, nullable=True)      # 合成开始时写入
     completed_at= Column(DateTime, nullable=True)      # 最终成功或失败时写入
     created_at  = Column(DateTime, default=datetime.utcnow)
+
+
+class PublishPlan(Base):
+    """发布计划表：一天/一批次的发布任务集合"""
+    __tablename__ = "publish_plans"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    name        = Column(String(200), nullable=True)                  # 计划名称，如 "2026-04-14 发布"
+    date        = Column(Date, nullable=False, index=True)            # 计划日期
+    status      = Column(String(20), default="pending")              # pending / running / done
+    created_at  = Column(DateTime, default=datetime.utcnow)
+
+    items       = relationship("PlanItem", backref="plan", lazy="dynamic")
+
+
+class PlanItem(Base):
+    """发布计划条目：单条账号 × 视频的发布记录，同时追踪评论"""
+    __tablename__ = "plan_items"
+
+    id              = Column(Integer, primary_key=True, autoincrement=True)
+    plan_id         = Column(Integer, ForeignKey("publish_plans.id"), nullable=False, index=True)
+    account_id      = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
+    video_task_id   = Column(Integer, ForeignKey("video_tasks.id"), nullable=False, index=True)
+    order_idx       = Column(Integer, default=0)                      # 发布顺序
+
+    # 发布
+    publish_status  = Column(Enum(PlanItemStatusEnum),
+                             default=PlanItemStatusEnum.PENDING, index=True)
+    published_url   = Column(String(500), nullable=True)             # 发布后抓取回填
+    published_at    = Column(DateTime, nullable=True)
+    category        = Column(String(50), nullable=True, default="")  # 游戏品类（冗余自 video_task）
+
+    # 错误
+    error_message   = Column(Text, nullable=True)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+
+    # 通知
+    notified        = Column(Boolean, default=False)  # 是否已推送企微通知
+
+
+class CommentTask(Base):
+    """评论任务表：发布成功后自动创建，分配给不同账号"""
+    __tablename__ = "comment_tasks"
+
+    id              = Column(Integer, primary_key=True, autoincrement=True)
+    plan_item_id    = Column(Integer, ForeignKey("plan_items.id"), nullable=False, index=True)
+    account_id      = Column(Integer, ForeignKey("accounts.id"), nullable=False, index=True)
+    url             = Column(String(500), nullable=False)             # 要评论的文章 URL
+    content         = Column(Text, nullable=True)                     # 评论内容（确认后写回）
+    category        = Column(String(50), nullable=True, default="")  # 游戏品类（冗余自 plan_item）
+    status          = Column(Enum(CommentTaskStatusEnum),
+                             default=CommentTaskStatusEnum.PENDING, index=True)
+    error_message   = Column(Text, nullable=True)
+    commented_at    = Column(DateTime, nullable=True)
+    created_at      = Column(DateTime, default=datetime.utcnow)

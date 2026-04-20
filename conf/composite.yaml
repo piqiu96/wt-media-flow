@@ -6,7 +6,12 @@ input_dir: data/downloads/          # 批量：处理目录下所有视频
 # input_file: data/downloads/single.mp4  # 单个文件
 
 # 引导视频
-guide_video: data/guides/guide.mp4
+# 若传了 --category，自动取 guide_by_category 对应路径；否则使用 guide_video 全局默认
+# CLI --guide 优先级最高
+guide_by_category:
+  三角洲: data/guides/三角洲/guide.mp4
+  暗区突围: data/guides/暗区突围/guide.mp4
+  蛋仔派对: data/guides/蛋仔派对/guide.mp4
 
 # 合成参数
 insert_at: 10                       # 插入位置（秒）

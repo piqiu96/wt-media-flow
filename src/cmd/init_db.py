@@ -30,11 +30,23 @@ class InitCommand(BaseCommand):
             "ALTER TABLE videos ADD COLUMN raw_data TEXT",
             "ALTER TABLE videos ADD COLUMN published_at DATETIME",
             "ALTER TABLE videos ADD COLUMN category VARCHAR(50) DEFAULT ''",
-            # accounts 表新字段
-            "ALTER TABLE accounts ADD COLUMN browser_id INTEGER",
-            "ALTER TABLE accounts ADD COLUMN profile_id VARCHAR(100)",
-            "ALTER TABLE accounts ADD COLUMN name VARCHAR(200)",
-            "ALTER TABLE accounts ADD COLUMN tag VARCHAR(100)",
+            # 热度统计字段
+            "ALTER TABLE videos ADD COLUMN like_count INTEGER DEFAULT 0",
+            "ALTER TABLE videos ADD COLUMN collect_count INTEGER DEFAULT 0",
+            "ALTER TABLE videos ADD COLUMN comment_count INTEGER DEFAULT 0",
+            # 清理旧轨表
+            "DROP TABLE IF EXISTS task_logs",
+            "DROP TABLE IF EXISTS publish_tasks",
+            # plan_items 新增 notified 字段
+            "ALTER TABLE plan_items ADD COLUMN notified BOOLEAN DEFAULT 0",
+            # videos 新增 deleted 字段
+            "ALTER TABLE videos ADD COLUMN deleted BOOLEAN DEFAULT 0",
+            # videos 新增两阶段采集字段
+            "ALTER TABLE videos ADD COLUMN claw_status VARCHAR(20) DEFAULT 'done'",
+            "ALTER TABLE videos ADD COLUMN claw_error TEXT",
+            "ALTER TABLE videos ADD COLUMN downloaded_at DATETIME",
+            # video_tasks 新增 source_vid 冗余字段（用于 source_vid 级去重）
+            "ALTER TABLE video_tasks ADD COLUMN source_vid VARCHAR(200)",
         ]
         with engine.connect() as conn:
             for sql in migrations:
@@ -50,6 +62,19 @@ class InitCommand(BaseCommand):
                 conn.commit()
             except Exception:
                 pass
+            # backfill video_tasks.source_vid（从 videos 表冗余填入）
+            try:
+                conn.execute(text("""
+                    UPDATE video_tasks
+                    SET source_vid = (
+                        SELECT source_vid FROM videos WHERE videos.id = video_tasks.video_id
+                    )
+                    WHERE source_vid IS NULL
+                """))
+                conn.commit()
+                print("已 backfill video_tasks.source_vid")
+            except Exception as e:
+                print(f"backfill 跳过: {e}")
 
         print("数据库迁移完成")
         return {"success": True, "message": "数据库初始化完成"}

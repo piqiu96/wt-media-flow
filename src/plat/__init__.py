@@ -1,7 +1,7 @@
 from typing import Dict, Type
 from .base import BasePlatform
 from .bilibili.upload import BilibiliPlatform
-from .baijiahao.upload import BaijiahaoPlatform
+from .baijiahao.bjh import BaijiahaoPlatform
 from .xiaohongshu.upload import XiaohongshuPlatform
 
 _PLATFORM_REGISTRY: Dict[str, Type[BasePlatform]] = {

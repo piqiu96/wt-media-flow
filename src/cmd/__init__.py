@@ -74,8 +74,8 @@ from cmd.pipeline import PipelineCommand
 from cmd.init_db import InitCommand
 from cmd.account import AccountCommand
 from cmd.video import VideoCommand
-from cmd.task import TaskCommand
 from cmd.plan import PlanCommand
-from cmd.run import RunCommand
 from cmd.claw import ClawCommand
 from cmd.publish import PublishCommand
+from cmd.comment import CommentCommand
+from cmd.cleanup import CleanupCommand

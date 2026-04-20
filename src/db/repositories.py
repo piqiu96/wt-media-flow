@@ -1,14 +1,12 @@
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, date, timedelta
 import json
 from sqlalchemy.orm import Session
-from .models import Account, Video, PublishTask, TaskLog, TaskStatusEnum, TaskTypeEnum, VideoTask, VideoTaskStatusEnum
-
-from typing import List, Optional
-from datetime import datetime, timedelta
-import json
-from sqlalchemy.orm import Session
-from .models import Account, Browser, Video, PublishTask, TaskLog, TaskStatusEnum, TaskTypeEnum, VideoTask, VideoTaskStatusEnum
+from .models import (Account, Browser, Video,
+                     VideoTask, VideoTaskStatusEnum,
+                     PublishPlan, PlanItem, PlanItemStatusEnum,
+                     CommentTask, CommentTaskStatusEnum,
+                     ClawStatusEnum)
 
 
 class BrowserRepository:
@@ -126,6 +124,28 @@ class VideoRepository:
             Video.source_vid == source_vid,
         ).first()
 
+    def get_expired_for_cleanup(self, days: int = 5) -> List[Video]:
+        """查 published_at 超过 N 天、文件未删除、有本地路径的视频"""
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        return (
+            self.db.query(Video)
+            .filter(
+                Video.published_at < cutoff,
+                Video.deleted.is_(False),
+                Video.path.isnot(None),
+                Video.path != "",
+            )
+            .order_by(Video.published_at.asc())
+            .all()
+        )
+
+    def mark_deleted(self, video_id: int):
+        video = self.get_by_id(video_id)
+        if video:
+            video.deleted = True
+            video.path = ""
+            self.db.commit()
+
     def update_path(self, video_id: int, path: str, cover_path: str = None):
         """下载完成后更新本地路径"""
         video = self.get_by_id(video_id)
@@ -140,7 +160,9 @@ class VideoRepository:
                          cover_url: str = None, source_url: str = None,
                          source_platform: str = None, source_vid: str = None,
                          raw_data: str = None, published_at=None,
-                         category: str = None) -> Video:
+                         category: str = None,
+                         like_count: int = 0, collect_count: int = 0,
+                         comment_count: int = 0) -> Video:
         """采集入库（无本地文件，仅元数据）"""
         video = Video(
             path="",
@@ -155,68 +177,57 @@ class VideoRepository:
             source_vid=source_vid,
             raw_data=raw_data,
             published_at=published_at,
+            like_count=like_count or 0,
+            collect_count=collect_count or 0,
+            comment_count=comment_count or 0,
+            claw_status=ClawStatusEnum.PENDING,
         )
         self.db.add(video)
         self.db.commit()
         self.db.refresh(video)
         return video
 
-class TaskRepository:
-    def __init__(self, db: Session):
-        self.db = db
-
-    def create(self, account_id: int, video_id: int, task_type: TaskTypeEnum,
-               schedule_time: Optional[datetime] = None) -> PublishTask:
-        task = PublishTask(
-            account_id=account_id,
-            video_id=video_id,
-            task_type=task_type,
-            schedule_time=schedule_time,
-            status=TaskStatusEnum.PENDING
-        )
-        self.db.add(task)
-        self.db.commit()
-        self.db.refresh(task)
-        return task
-
-    def get_by_id(self, task_id: int) -> Optional[PublishTask]:
-        return self.db.query(PublishTask).filter(PublishTask.id == task_id).first()
-
-    def get_pending_tasks(self, limit: int = 5) -> List[PublishTask]:
-        return self.db.query(PublishTask).filter(
-            PublishTask.status == TaskStatusEnum.PENDING,
-            PublishTask.schedule_time <= datetime.utcnow()
-        ).limit(limit).all()
-
-    def update_status(self, task_id: int, status: TaskStatusEnum,
-                      error_message: Optional[str] = None):
-        task = self.db.query(PublishTask).filter(PublishTask.id == task_id).first()
-        if task:
-            task.status = status
-            if status == TaskStatusEnum.RUNNING:
-                task.started_at = datetime.utcnow()
-            elif status in [TaskStatusEnum.SUCCESS, TaskStatusEnum.FAILED]:
-                task.completed_at = datetime.utcnow()
-            if error_message:
-                task.error_message = error_message
+    def mark_claw_done(self, video_id: int, local_path: str):
+        """下载成功：更新 path + claw_status=done + downloaded_at"""
+        video = self.get_by_id(video_id)
+        if video:
+            video.path = local_path
+            video.claw_status = ClawStatusEnum.DONE
+            video.downloaded_at = datetime.utcnow()
+            video.claw_error = None
             self.db.commit()
 
-    def increment_retry(self, task_id: int):
-        task = self.db.query(PublishTask).filter(PublishTask.id == task_id).first()
-        if task:
-            task.retry_count += 1
+    def mark_claw_failed(self, video_id: int, error: str):
+        """下载失败：claw_status=failed + 记录原因"""
+        video = self.get_by_id(video_id)
+        if video:
+            video.claw_status = ClawStatusEnum.FAILED
+            video.claw_error = error
             self.db.commit()
 
-    def list_recent(self, limit: int = 20) -> List[PublishTask]:
-        return self.db.query(PublishTask).order_by(PublishTask.id.desc()).limit(limit).all()
+    def get_pending_claw(self, category: str = None, limit: int = 200) -> List[Video]:
+        """查 claw_status=pending 待下载的视频"""
+        q = self.db.query(Video).filter(Video.claw_status == ClawStatusEnum.PENDING)
+        if category:
+            q = q.filter(Video.category == category)
+        return q.order_by(Video.id.asc()).limit(limit).all()
 
-class LogRepository:
-    def __init__(self, db: Session):
-        self.db = db
+    def get_failed_claw(self, category: str = None) -> List[Video]:
+        """查 claw_status=failed 下载失败的视频"""
+        q = self.db.query(Video).filter(Video.claw_status == ClawStatusEnum.FAILED)
+        if category:
+            q = q.filter(Video.category == category)
+        return q.order_by(Video.id.asc()).all()
 
-    def create(self, task_id: int, level: str, message: str):
-        log = TaskLog(task_id=task_id, level=level, message=message)
-        self.db.add(log)
+    def reset_failed_claw(self, video_ids: list[int]):
+        """将指定 failed 视频重置为 pending"""
+        self.db.query(Video).filter(
+            Video.id.in_(video_ids),
+            Video.claw_status == ClawStatusEnum.FAILED,
+        ).update({
+            "claw_status": ClawStatusEnum.PENDING,
+            "claw_error": None,
+        }, synchronize_session=False)
         self.db.commit()
 
 
@@ -226,7 +237,8 @@ class VideoTaskRepository:
 
     def create(self, video_id: int, title: str = None, tags: str = None,
                cover_url: str = None, video_url: str = None,
-               guide_path: str = None) -> VideoTask:
+               guide_path: str = None, category: str = "",
+               source_vid: str = None) -> VideoTask:
         task = VideoTask(
             video_id=video_id,
             title=title,
@@ -234,6 +246,8 @@ class VideoTaskRepository:
             cover_url=cover_url,
             video_url=video_url,
             guide_path=guide_path,
+            category=category or "",
+            source_vid=source_vid,
             status=VideoTaskStatusEnum.PENDING,
         )
         self.db.add(task)
@@ -328,3 +342,287 @@ class VideoTaskRepository:
 
     def list_recent(self, limit: int = 50) -> List[VideoTask]:
         return self.db.query(VideoTask).order_by(VideoTask.id.desc()).limit(limit).all()
+
+    def get_videos_for_recomposite(self, days: int = 1,
+                                   category: str = None) -> list:
+        """查最近 N 天 published_at 的 videos，连带最新 VideoTask（可能为 None）
+        返回: list of (Video, VideoTask | None)
+        排序: (like_count + collect_count) DESC
+        """
+        from sqlalchemy import func
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        q = self.db.query(Video).filter(Video.published_at >= cutoff)
+        if category:
+            q = q.filter(Video.category == category)
+        videos = q.filter(
+            Video.deleted.is_(False)
+        ).order_by(
+            (Video.like_count + Video.collect_count).desc()
+        ).all()
+
+        result = []
+        for video in videos:
+            task = (
+                self.db.query(VideoTask)
+                .filter(VideoTask.video_id == video.id)
+                .order_by(VideoTask.id.desc())
+                .first()
+            )
+            result.append((video, task))
+        return result
+
+    def reset_for_recomposite(self, task_id: int):
+        """原地重置 VideoTask 合成字段，状态回 PENDING"""
+        task = self.get_by_id(task_id)
+        if task:
+            task.status = VideoTaskStatusEnum.PENDING
+            task.output_path = None
+            task.message = None
+            task.started_at = None
+            task.completed_at = None
+            task.detail = None
+            self.db.commit()
+
+    def is_referenced_by_active_plan(self, task_id: int) -> bool:
+        """检查 task 是否被 PENDING/PUBLISHING/PUBLISHED 的 plan_item 引用"""
+        from sqlalchemy import exists
+        return self.db.query(
+            exists().where(
+                PlanItem.video_task_id == task_id,
+                PlanItem.publish_status.in_([
+                    PlanItemStatusEnum.PENDING,
+                    PlanItemStatusEnum.PUBLISHING,
+                    PlanItemStatusEnum.PUBLISHED,
+                ])
+            )
+        ).scalar()
+
+    def get_unassigned_composited(self, limit: int = 100,
+                                   max_age_days: int = 5) -> List[VideoTask]:
+        """查未被 publishing/published/failed plan_item 引用过的 composited 任务
+
+        去重粒度：source_vid 级别
+        - PUBLISHING / PUBLISHED / FAILED：排除（发布中/已发布/失败均不再重入）
+        - PENDING：不排除（计划未执行，允许重新进入新计划）
+
+        排除条件：
+        - 该 VideoTask.source_vid 已存在于任何 publishing/published/failed plan_item 引用的 VideoTask 中
+        - videos.published_at 超过 max_age_days 天的过期素材排除（默认 5 天）
+        排序：关联 videos 表的 (like_count + collect_count) DESC，优先高热度
+        """
+        from sqlalchemy import select, or_
+        cutoff = datetime.utcnow() - timedelta(days=max_age_days)
+
+        # source_vid 级排除：PUBLISHING / PUBLISHED / FAILED 对应的 source_vid
+        already_planned_svids = (
+            select(VideoTask.source_vid)
+            .join(PlanItem, PlanItem.video_task_id == VideoTask.id)
+            .where(
+                VideoTask.source_vid.isnot(None),
+                PlanItem.publish_status.in_([
+                    PlanItemStatusEnum.PUBLISHING,
+                    PlanItemStatusEnum.PUBLISHED,
+                    PlanItemStatusEnum.FAILED,
+                ])
+            )
+        )
+        return (
+            self.db.query(VideoTask)
+            .join(Video, VideoTask.video_id == Video.id)
+            .filter(
+                VideoTask.status == VideoTaskStatusEnum.COMPOSITED,
+                VideoTask.source_vid.isnot(None),
+                ~VideoTask.source_vid.in_(already_planned_svids),
+                or_(Video.published_at.is_(None),
+                    Video.published_at >= cutoff),
+            )
+            .order_by(
+                (Video.like_count + Video.collect_count).desc()
+            )
+            .limit(limit)
+            .all()
+        )
+
+
+class PublishPlanRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def create(self, plan_date: date, name: str = None) -> PublishPlan:
+        plan = PublishPlan(
+            date=plan_date,
+            name=name or f"{plan_date} 发布计划",
+            status="pending",
+        )
+        self.db.add(plan)
+        self.db.commit()
+        self.db.refresh(plan)
+        return plan
+
+    def get_by_id(self, plan_id: int) -> Optional[PublishPlan]:
+        return self.db.query(PublishPlan).filter(PublishPlan.id == plan_id).first()
+
+    def list_by_date(self, plan_date: date) -> List[PublishPlan]:
+        return self.db.query(PublishPlan).filter(PublishPlan.date == plan_date).all()
+
+    def list_recent(self, limit: int = 20) -> List[PublishPlan]:
+        return self.db.query(PublishPlan).order_by(PublishPlan.id.desc()).limit(limit).all()
+
+    def set_status(self, plan_id: int, status: str):
+        plan = self.get_by_id(plan_id)
+        if plan:
+            plan.status = status
+            self.db.commit()
+
+
+class PlanItemRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def create(self, plan_id: int, account_id: int, video_task_id: int,
+               order_idx: int = 0, category: str = "") -> PlanItem:
+        item = PlanItem(
+            plan_id=plan_id,
+            account_id=account_id,
+            video_task_id=video_task_id,
+            order_idx=order_idx,
+            category=category or "",
+            publish_status=PlanItemStatusEnum.PENDING,
+        )
+        self.db.add(item)
+        self.db.commit()
+        self.db.refresh(item)
+        return item
+
+    def get_by_id(self, item_id: int) -> Optional[PlanItem]:
+        return self.db.query(PlanItem).filter(PlanItem.id == item_id).first()
+
+    def get_pending_by_account(self, plan_id: int, account_id: int) -> List[PlanItem]:
+        return (
+            self.db.query(PlanItem)
+            .filter(
+                PlanItem.plan_id == plan_id,
+                PlanItem.account_id == account_id,
+                PlanItem.publish_status == PlanItemStatusEnum.PENDING,
+            )
+            .order_by(PlanItem.order_idx.asc())
+            .all()
+        )
+
+    def list_by_plan(self, plan_id: int) -> List[PlanItem]:
+        return (
+            self.db.query(PlanItem)
+            .filter(PlanItem.plan_id == plan_id)
+            .order_by(PlanItem.account_id.asc(), PlanItem.order_idx.asc())
+            .all()
+        )
+
+    def start_publish(self, item_id: int):
+        item = self.get_by_id(item_id)
+        if item:
+            item.publish_status = PlanItemStatusEnum.PUBLISHING
+            self.db.commit()
+
+    def complete_publish(self, item_id: int, published_url: str = None):
+        item = self.get_by_id(item_id)
+        if item:
+            item.publish_status = PlanItemStatusEnum.PUBLISHED
+            item.published_url = published_url
+            item.published_at = datetime.utcnow()
+            self.db.commit()
+
+    def fail(self, item_id: int, error_message: str = None):
+        item = self.get_by_id(item_id)
+        if item:
+            item.publish_status = PlanItemStatusEnum.FAILED
+            item.error_message = error_message
+            self.db.commit()
+
+    def mark_notified(self, item_id: int):
+        """标记 plan_item 已推送企微通知"""
+        item = self.get_by_id(item_id)
+        if item:
+            item.notified = True
+            self.db.commit()
+
+    def get_published_not_notified(self, plan_id: int) -> List[PlanItem]:
+        """获取已发布但未通知的条目（plan check 使用）"""
+        return (
+            self.db.query(PlanItem)
+            .filter(
+                PlanItem.plan_id == plan_id,
+                PlanItem.publish_status == PlanItemStatusEnum.PUBLISHED,
+                PlanItem.published_url.isnot(None),
+                PlanItem.published_url != "",
+                PlanItem.notified.is_(False),
+            )
+            .order_by(PlanItem.order_idx.asc())
+            .all()
+        )
+
+
+class CommentTaskRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def create(self, plan_item_id: int, account_id: int, url: str,
+               content: str = None, category: str = "") -> CommentTask:
+        task = CommentTask(
+            plan_item_id=plan_item_id,
+            account_id=account_id,
+            url=url,
+            content=content,
+            category=category or "",
+            status=CommentTaskStatusEnum.PENDING,
+        )
+        self.db.add(task)
+        self.db.commit()
+        self.db.refresh(task)
+        return task
+
+    def get_pending_by_account(self, account_id: int,
+                               limit: int = 50) -> List[CommentTask]:
+        return (
+            self.db.query(CommentTask)
+            .filter(
+                CommentTask.account_id == account_id,
+                CommentTask.status == CommentTaskStatusEnum.PENDING,
+                CommentTask.url.isnot(None),
+                CommentTask.content.isnot(None),
+            )
+            .order_by(CommentTask.id.asc())
+            .limit(limit)
+            .all()
+        )
+
+    def start(self, task_id: int):
+        t = self.db.query(CommentTask).filter(CommentTask.id == task_id).first()
+        if t:
+            t.status = CommentTaskStatusEnum.COMMENTING
+            self.db.commit()
+
+    def complete(self, task_id: int):
+        t = self.db.query(CommentTask).filter(CommentTask.id == task_id).first()
+        if t:
+            t.status = CommentTaskStatusEnum.DONE
+            t.commented_at = datetime.utcnow()
+            self.db.commit()
+
+    def fail(self, task_id: int, error: str = None):
+        t = self.db.query(CommentTask).filter(CommentTask.id == task_id).first()
+        if t:
+            t.status = CommentTaskStatusEnum.FAILED
+            t.error_message = error
+            self.db.commit()
+
+    def update_content(self, task_id: int, content: str):
+        t = self.db.query(CommentTask).filter(CommentTask.id == task_id).first()
+        if t:
+            t.content = content
+            self.db.commit()
+
+    def update_url(self, task_id: int, url: str):
+        t = self.db.query(CommentTask).filter(CommentTask.id == task_id).first()
+        if t:
+            t.url = url
+            self.db.commit()

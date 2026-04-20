@@ -206,3 +206,28 @@ SQLite，位于 `data/publisher.db`。
 3. **登录状态**：首次使用各平台前需在比特浏览器中手动登录账号
 4. **发布限制**：新账号建议减少发布频率，避免触发风控
 5. **采集去重**：按 `source_platform + source_vid` 自动去重，重复素材不会入库
+
+## 已知限制与解决方案
+
+### Playwright 文件上传 50MB 限制
+
+通过 CDP（`connect_over_cdp`）连接比特浏览器时，Playwright 的 `FileChooser.set_files` /
+`set_input_files` 默认限制传输文件大小为 **50MB**，超出会报错：
+
+```
+FileChooser.set_files: Cannot transfer files larger than 50Mb to a browser not co-located with the server
+```
+
+**修改方法**：编辑 Playwright 驱动源码中的 `fileUploadSizeLimit` 常量：
+
+```
+.venv/lib/python3.14/site-packages/playwright/driver/package/lib/server/fileUploadUtils.js
+```
+
+找到 `fileUploadSizeLimit` 并调大（单位：字节，默认 `50 * 1024 * 1024`），例如改为 200MB：
+
+```js
+const fileUploadSizeLimit = 200 * 1024 * 1024;
+```
+
+> ⚠️ 该文件随 pip 安装，**重新安装/升级 playwright 后会被覆盖**，需重新修改。
