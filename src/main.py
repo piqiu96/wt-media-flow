@@ -18,7 +18,7 @@ PROJECT_ROOT = os.path.dirname(SRC_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from cmd import get_all_commands, get_command
+from app.cli import get_all_commands, get_command
 
 
 def main():

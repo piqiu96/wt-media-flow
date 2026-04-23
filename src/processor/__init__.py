@@ -1,1 +1,0 @@
-from processor.compositor import VideoCompositor

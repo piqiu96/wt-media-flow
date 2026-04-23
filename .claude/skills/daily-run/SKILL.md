@@ -13,16 +13,16 @@ description: 每日视频采集→合成→发布完整流程（三角洲/暗区
 
 ## 阶段一：采集素材（Claw）
 
-**目标：** 从抖音抓取三角洲行动最新热点视频，入库备用。
+**目标：** 从抖音抓取三角洲 + 暗区突围最新热点视频，入库备用。
 
 ```bash
 .venv/bin/python3 src/main.py claw \
   --config conf/claw.yaml \
-  --category 三角洲 \
-  --count 30 \
-  --publish-time 1 \
-  --sort-type 2 \
-  --filter-duration "1-5"
+  --category 三角洲
+
+.venv/bin/python3 src/main.py claw \
+  --config conf/claw.yaml \
+  --category 暗区突围
 ```
 
 执行后汇报：新增 N 条，跳过（重复）M 条，失败 K 条。
@@ -34,50 +34,39 @@ description: 每日视频采集→合成→发布完整流程（三角洲/暗区
 
 **目标：** 对库中 **3 天内发布、尚未合成** 的视频批量合成，达到或超过今日发布目标（50 条）。
 
-执行前先查询待合成视频列表：
+执行前先查询待合成视频数量（用 sqlite3 直接查询）：
 
 ```bash
 .venv/bin/python3 -c "
-from src.db.database import SessionLocal
-from src.db.models import Video
-from datetime import datetime, timedelta
-db = SessionLocal()
-cutoff = datetime.utcnow() - timedelta(days=3)
-rows = db.query(Video).filter(
-    Video.published_at >= cutoff,
-    Video.status == 'pending',
-    Video.category == '三角洲'
-).order_by((Video.like_count + Video.collect_count).desc()).limit(80).all()
-vids = [r.source_vid for r in rows]
-print(' '.join(vids))
-db.close()
+import sqlite3, datetime
+conn = sqlite3.connect('data/publisher.db')
+cutoff = (datetime.datetime.utcnow() - datetime.timedelta(days=3)).strftime('%Y-%m-%d %H:%M:%S')
+for cat in ['三角洲', '暗区突围']:
+    rows = conn.execute(
+      '''SELECT source_vid FROM videos
+         WHERE category=? AND claw_status='done' AND status='pending'
+           AND published_at >= ?
+         ORDER BY (like_count+collect_count) DESC LIMIT 80''', (cat, cutoff)
+    ).fetchall()
+    vids = [r[0] for r in rows if r[0]]
+    print(f'{cat}: {len(vids)} 条待合成')
+    print(' '.join(vids[:10]) + ('...' if len(vids) > 10 else ''))
+conn.close()
 "
 ```
 
-> 若该脚本在项目根目录执行有 import 路径问题，改用 sqlite3 直接查询：
-> ```bash
-> .venv/bin/python3 -c "
-> import sqlite3, datetime
-> conn = sqlite3.connect('data/publisher.db')
-> cutoff = (datetime.datetime.utcnow() - datetime.timedelta(days=3)).strftime('%Y-%m-%d %H:%M:%S')
-> rows = conn.execute(
->   '''SELECT source_vid FROM videos
->      WHERE category='三角洲' AND status='pending'
->        AND published_at >= ?
->      ORDER BY (like_count+collect_count) DESC LIMIT 80''', (cutoff,)
-> ).fetchall()
-> print(' '.join(r[0] for r in rows if r[0]))
-> conn.close()
-> "
-> ```
-
-拿到 vid 列表后批量合成（--workers 2 并发加速）：
+拿到 vid 列表后批量合成：
 
 ```bash
 .venv/bin/python3 src/main.py composite \
   --vids <vid1> <vid2> ... \
-  --guide data/guides/guide.mp4 \
-  --workers 2
+  --config conf/composite.yaml \
+  --category 三角洲
+
+.venv/bin/python3 src/main.py composite \
+  --vids <vid1> <vid2> ... \
+  --config conf/composite.yaml \
+  --category 暗区突围
 ```
 
 执行后汇报：成功 N 条，失败 M 条。
@@ -128,9 +117,9 @@ db.close()
 | 异常 | 处理 |
 |------|------|
 | 采集 0 条 | 检查 API key 配额，尝试换 sort_type=0 重试 |
-| 合成失败率 > 30% | 检查引导视频路径 `data/guides/guide.mp4` 是否存在 |
+| 合成失败率 > 30% | 检查引导视频路径 `data/guides/{category}/guide.mp4` 是否存在 |
 | plan create 提示无视频 | 确认 composite 成功，检查 video_tasks.status=composited 记录 |
-| 比特浏览器连接失败 | 确认比特浏览器 API 服务已启动（默认 127.0.0.1:54345） |
+| 比特浏览器连接失败 | 确认比特浏览器 API 服务已启动（默认 127.0.0.1:54345）|
 | 发布后无法获取链接 | 手动记录链接，用 plan check 后续补充过审通知 |
 
 ---

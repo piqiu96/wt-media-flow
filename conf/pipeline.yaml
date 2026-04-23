@@ -1,33 +1,12 @@
 # 全流程 Pipeline 配置示例
-# 使用方式: python main.py cmd pipeline --config conf/pipeline.yaml
+# 使用方式: .venv/bin/python3 src/main.py composite --config conf/composite.yaml --category 三角洲
+# 注意：pipeline 命令已移除，下载 + 合成请分别使用 claw 和 composite 命令
 
-# 执行步骤（按顺序执行，可注释掉跳过某步骤）
-steps:
-  - download
-  - composite
-  # - publish              # 取消注释启用自动入库发布
+# 引导视频（按品类配置，与 composite.yaml 保持一致）
+guide_by_category:
+  三角洲: data/guides/三角洲/guide.mp4
+  暗区突围: data/guides/暗区突围/guide.mp4
+  蛋仔派对: data/guides/蛋仔派对/guide.mp4
 
-# === 下载配置 ===
-download:
-  source: douyin            # douyin / bilibili
-  urls:
-    # - "https://v.douyin.com/xxx1"
-    # - "https://v.douyin.com/xxx2"
-  # urls_file: data/urls.txt
-  output_dir: data/downloads/
-  # cookies: conf/bilibili_cookies.txt
-  # quality: best
-
-# === 合成配置 ===
-composite:
-  guide_video: data/guides/guide.mp4
-  insert_at: 10             # 插入位置（秒）
-  # guide_duration: 5       # 引导视频截取时长
-  output_dir: data/output/
-
-# === 发布配置（可选）===
-publish:
-  platform: bilibili        # 发布目标平台
-  title_prefix: ""          # 标题前缀
-  tags: ""                  # 标签，逗号分隔
-  description: ""           # 描述
+# === 合成配置（供 composite 命令使用）===
+# 参见 conf/composite.yaml
