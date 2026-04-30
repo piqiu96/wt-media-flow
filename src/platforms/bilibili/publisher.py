@@ -28,6 +28,7 @@ _GAME_ZONES = {
     "暗区突围": "单机游戏",
     "蛋仔派对": "单机游戏",
     "游戏": "单机游戏",
+    "火影忍者": "单机游戏",
 }
 
 
@@ -174,11 +175,19 @@ class BilibiliPublisher:
         try:
             # 点击分区选择触发器（多种可能的选择器）
             zone_trigger_sels = [
+                '#video-up-app > div.video-basic-wrp > div.video-basic > div.form > div:nth-child(5) > div > div.selector-container > div > div',
                 '.zone-select',
                 '[class*="zone-select"]',
                 'input[placeholder*="分区"]',
                 '.select-wrap:has-text("分区")',
                 '.type-select',
+                '[class*="type-select"]',
+                '[class*="channel"]',
+                '.bcc-select',
+                '[placeholder*="选择分区"]',
+                '[placeholder*="请选择分区"]',
+                ':text("请选择分区")',
+                ':text("选择分区")',
             ]
             triggered = False
             for sel in zone_trigger_sels:
@@ -193,6 +202,34 @@ class BilibiliPublisher:
                 except Exception:
                     continue
 
+            # JS 兜底：扫描 DOM 找含「分区」文字的可点击元素
+            if not triggered:
+                try:
+                    clicked = page.evaluate("""() => {
+                        const keywords = ['分区', '类型'];
+                        const tags = ['input', 'button', 'div', 'span', 'label', 'li'];
+                        for (const kw of keywords) {
+                            for (const tag of tags) {
+                                const els = Array.from(document.querySelectorAll(tag));
+                                for (const el of els) {
+                                    const txt = (el.innerText || el.placeholder || el.value || '').trim();
+                                    const r = el.getBoundingClientRect();
+                                    if (txt.includes(kw) && r.width > 0 && r.height > 0) {
+                                        el.click();
+                                        return txt;
+                                    }
+                                }
+                            }
+                        }
+                        return null;
+                    }""")
+                    if clicked:
+                        triggered = True
+                        logger.info(f"分区触发器 JS 兜底点击成功: '{clicked}'")
+                        time.sleep(random.uniform(0.5, 1.0))
+                except Exception as e:
+                    logger.debug(f"JS 兜底失败: {e}")
+
             if not triggered:
                 logger.warning("未找到分区触发器，跳过分区选择")
                 return
@@ -202,14 +239,14 @@ class BilibiliPublisher:
                 game_sel = ':text-is("游戏")'
                 page.locator(game_sel).first.click(timeout=5000)
                 logger.info("已选一级分区: 游戏")
-                time.sleep(random.uniform(0.3, 0.6))
+                time.sleep(random.uniform(1.0, 1.5))  # 等子菜单渲染
             except Exception as e:
                 logger.warning(f"一级分区「游戏」点击失败: {e}")
                 return
 
-            # 二级分区
+            # 二级分区：精确匹配 → 部分匹配 → 搜索框
             try:
-                sub_sel = f':text-is("{zone_name}")'
+                sub_sel = f':text("{zone_name}")'
                 page.locator(sub_sel).first.click(timeout=5000)
                 logger.info(f"已选二级分区: {zone_name}")
                 time.sleep(random.uniform(0.3, 0.6))
@@ -234,9 +271,14 @@ class BilibiliPublisher:
         """点击投稿按钮"""
         try:
             submit_selectors = [
+                '#video-up-app > div.video-basic-wrp > div.video-basic > div.form > div:nth-child(17) > div > div > span',
                 '.submit-add:has-text("投稿")',
                 'button:has-text("投稿")',
                 '.submit-btn:has-text("投稿")',
+                'button:has-text("立即投稿")',
+                '[class*="submit"]:has-text("投稿")',
+                ':text-is("立即投稿")',
+                ':text-is("提交")',
             ]
             for sel in submit_selectors:
                 try:

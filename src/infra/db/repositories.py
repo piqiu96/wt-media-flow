@@ -2,7 +2,7 @@ from typing import List, Optional
 from datetime import datetime, date, timedelta
 import json
 from sqlalchemy.orm import Session
-from .models import (Account, Browser, Video,
+from .models import (Account, Browser, User, Video,
                      VideoTask, VideoTaskStatusEnum,
                      PublishPlan, PlanItem, PlanItemStatusEnum,
                      CommentTask, CommentTaskStatusEnum,
@@ -77,6 +77,36 @@ class AccountRepository:
 
     def list_all(self) -> List[Account]:
         return self.db.query(Account).all()
+
+    def get_active_accounts_by_user(self, user_id: int) -> List[Account]:
+        """返回指定用户名下所有有效账号（含无浏览器容器的手动账号）"""
+        return self.db.query(Account).filter(
+            Account.user_id == user_id,
+            Account.status == "active",
+        ).all()
+
+
+class UserRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def create(self, name: str, username: str = None, role: str = "operator",
+               pool: str = None, wecom_id: str = None) -> User:
+        user = User(name=name, username=username, role=role,
+                    pool=pool, wecom_id=wecom_id)
+        self.db.add(user)
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
+    def get_by_id(self, user_id: int) -> Optional[User]:
+        return self.db.query(User).filter(User.id == user_id).first()
+
+    def list_active(self) -> List[User]:
+        return self.db.query(User).filter(User.status == "active").all()
+
+    def list_all(self) -> List[User]:
+        return self.db.query(User).order_by(User.id.asc()).all()
 
 class VideoRepository:
     def __init__(self, db: Session):
@@ -249,6 +279,47 @@ class VideoRepository:
         }, synchronize_session=False)
         self.db.commit()
 
+    def get_unprocessed_vids(self, category: str, limit: int = 200,
+                              max_age_days: int = 5) -> list[str]:
+        """取已下载但未合成（或合成失败）的原始素材 source_vid 列表
+
+        排除条件：
+        1. 已有非 FAILED 状态的 video_task（合成中/合成完成）
+        2. 已进入过任意计划的 video_task 引用的 video（任意状态均算）
+        3. 超过 max_age_days 天的老视频
+        """
+        from sqlalchemy import or_, and_
+        composited_video_ids = (
+            self.db.query(VideoTask.video_id)
+            .filter(VideoTask.status != VideoTaskStatusEnum.FAILED)
+            .subquery()
+        )
+        in_plan_video_ids = (
+            self.db.query(VideoTask.video_id)
+            .join(PlanItem, PlanItem.video_task_id == VideoTask.id)
+            .subquery()
+        )
+        cutoff = datetime.utcnow() - timedelta(days=max_age_days)
+        rows = (
+            self.db.query(Video.source_vid)
+            .filter(
+                Video.category == category,
+                Video.claw_status == ClawStatusEnum.DONE,
+                Video.path.isnot(None),
+                Video.path != "",
+                or_(
+                    Video.published_at >= cutoff,
+                    and_(Video.published_at.is_(None), Video.created_at >= cutoff),
+                ),
+                Video.id.notin_(composited_video_ids),
+                Video.id.notin_(in_plan_video_ids),
+            )
+            .order_by((Video.like_count + Video.collect_count).desc())
+            .limit(limit)
+            .all()
+        )
+        return [r.source_vid for r in rows]
+
 
 class VideoTaskRepository:
     def __init__(self, db: Session):
@@ -257,7 +328,7 @@ class VideoTaskRepository:
     def create(self, video_id: int, title: str = None, tags: str = None,
                cover_url: str = None, video_url: str = None,
                guide_path: str = None, category: str = "",
-               source_vid: str = None) -> VideoTask:
+               source_vid: str = None, pool: str = None) -> VideoTask:
         task = VideoTask(
             video_id=video_id,
             title=title,
@@ -267,6 +338,7 @@ class VideoTaskRepository:
             guide_path=guide_path,
             category=category or "",
             source_vid=source_vid,
+            pool=pool,
             status=VideoTaskStatusEnum.PENDING,
         )
         self.db.add(task)
@@ -482,7 +554,7 @@ class VideoTaskRepository:
 
         cutoff = datetime.utcnow() - timedelta(days=max_age_days)
 
-        # 排除已在该平台 publishing/published/failed 的 source_vid
+        # 排除已在该平台 pending/publishing/published/failed 的 source_vid
         already_on_platform_svids = (
             select(VideoTask.source_vid)
             .join(PlanItem, PlanItem.video_task_id == VideoTask.id)
@@ -490,6 +562,7 @@ class VideoTaskRepository:
                 VideoTask.source_vid.isnot(None),
                 PlanItem.platform == platform,
                 PlanItem.publish_status.in_([
+                    PlanItemStatusEnum.PENDING,
                     PlanItemStatusEnum.PUBLISHING,
                     PlanItemStatusEnum.PUBLISHED,
                     PlanItemStatusEnum.FAILED,
@@ -513,16 +586,61 @@ class VideoTaskRepository:
             .all()
         )
 
+    def get_composited_for_pool(self, pool: str, platform: str,
+                                limit: int = 500,
+                                max_age_days: int = 5) -> List[VideoTask]:
+        """查属于指定视频池、且在指定平台上未 publishing/published/failed 的 composited 任务。
+
+        去重粒度：source_vid + platform 级别，与 get_composited_for_platform 一致。
+        额外过滤：VideoTask.pool == pool（只取该池子合成的视频）。
+        """
+        from sqlalchemy import select, or_
+
+        cutoff = datetime.utcnow() - timedelta(days=max_age_days)
+
+        already_on_platform_svids = (
+            select(VideoTask.source_vid)
+            .join(PlanItem, PlanItem.video_task_id == VideoTask.id)
+            .where(
+                VideoTask.source_vid.isnot(None),
+                PlanItem.platform == platform,
+                PlanItem.publish_status.in_([
+                    PlanItemStatusEnum.PENDING,
+                    PlanItemStatusEnum.PUBLISHING,
+                    PlanItemStatusEnum.PUBLISHED,
+                    PlanItemStatusEnum.FAILED,
+                ])
+            )
+        )
+        return (
+            self.db.query(VideoTask)
+            .join(Video, VideoTask.video_id == Video.id)
+            .filter(
+                VideoTask.status == VideoTaskStatusEnum.COMPOSITED,
+                VideoTask.pool == pool,
+                VideoTask.source_vid.isnot(None),
+                ~VideoTask.source_vid.in_(already_on_platform_svids),
+                or_(Video.published_at.is_(None),
+                    Video.published_at >= cutoff),
+            )
+            .order_by(
+                (Video.like_count + Video.collect_count).desc()
+            )
+            .limit(limit)
+            .all()
+        )
+
 
 class PublishPlanRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def create(self, plan_date: date, name: str = None) -> PublishPlan:
+    def create(self, plan_date: date, name: str = None, user_id: int = None) -> PublishPlan:
         plan = PublishPlan(
             date=plan_date,
             name=name or f"{plan_date} 发布计划",
             status="pending",
+            user_id=user_id,
         )
         self.db.add(plan)
         self.db.commit()
@@ -633,6 +751,38 @@ class PlanItemRepository:
             .order_by(PlanItem.order_idx.asc())
             .all()
         )
+
+    def get_published_for_stats(self, plan_id: int | None = None, since_date=None) -> List[PlanItem]:
+        """获取已发布且有 URL 的条目，用于定时抓取统计数据。
+        支持按 plan_id 或发布日期（since_date）筛选，两者均为可选。
+        """
+        from datetime import datetime, date as date_type
+        query = self.db.query(PlanItem).filter(
+            PlanItem.publish_status == PlanItemStatusEnum.PUBLISHED,
+            PlanItem.published_url.isnot(None),
+            PlanItem.published_url != "",
+        )
+        if plan_id is not None:
+            query = query.filter(PlanItem.plan_id == plan_id)
+        if since_date is not None:
+            if isinstance(since_date, date_type):
+                since_dt = datetime(since_date.year, since_date.month, since_date.day)
+            else:
+                since_dt = since_date
+            query = query.filter(PlanItem.published_at >= since_dt)
+        return query.order_by(PlanItem.plan_id.asc(), PlanItem.order_idx.asc()).all()
+
+    def update_stats(self, item_id: int, view_count: int | None,
+                     like_count: int | None, comment_count: int | None):
+        """写入统计数据（播放/点赞/评论）及抓取时间"""
+        from datetime import datetime
+        item = self.get_by_id(item_id)
+        if item:
+            item.view_count    = view_count
+            item.like_count    = like_count
+            item.comment_count = comment_count
+            item.stats_fetched_at = datetime.utcnow()
+            self.db.commit()
 
     def reset_failed(self, plan_id: int, account_id: int | None = None) -> int:
         """重置技术性失败条目为 PENDING，返回重置数量"""

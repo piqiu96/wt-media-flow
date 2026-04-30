@@ -73,3 +73,5 @@ from app.cli.publish import PublishCommand       # noqa: E402,F401
 from app.cli.comment import CommentCommand       # noqa: E402,F401
 from app.cli.cleanup import CleanupCommand       # noqa: E402,F401
 from app.cli.serve import ServeCommand           # noqa: E402,F401
+from app.cli.pack import PackCommand             # noqa: E402,F401
+from app.cli.overlay import OverlayCommand       # noqa: E402,F401

@@ -188,12 +188,45 @@ class VideoCompositor:
 
         return back_end
 
+    @staticmethod
+    def _build_watermark_filter(text: str, style: dict,
+                                in_label: str, out_label: str) -> str:
+        """构建水印 drawtext filter
+
+        drift=lissajous: Lissajous 曲线漂移
+        drift=static:    固定居中
+        """
+        safe = text.replace("\\", "\\\\").replace("'", "\\'").replace(":", "\\:")
+        fontsize = style.get("fontsize", 22)
+        opacity = style.get("opacity", 0.25)
+        drift = style.get("drift", "lissajous")
+
+        if drift == "static":
+            x, y = "(W-tw)/2", "(H-th)/2"
+        else:  # lissajous
+            x = "W/2+W*0.35*sin(t*0.4)"
+            y = "H/2+H*0.35*cos(t*0.7)"
+
+        return (
+            f"{in_label}setsar=1,"
+            f"drawtext="
+            f"text='{safe}':"
+            f"fontsize={fontsize}:"
+            f"fontcolor=white@{opacity}:"
+            f"x='{x}':"
+            f"y='{y}'"
+            f"{out_label}"
+        )
+
     def composite(self, input_video: str, guide_video: str,
                   insert_at: float, output_path: str,
                   guide_duration: float = 0,
                   dedup: bool = True,
                   insert_range: Optional[tuple[float, float]] = None,
-                  max_duration: float = 0) -> dict:
+                  max_duration: float = 0,
+                  category: str = "",
+                  watermark_text: str = "",
+                  watermark_style: Optional[dict] = None) -> dict:
         """在原视频 insert_at 秒处插入引导视频
 
         参数:
@@ -205,6 +238,8 @@ class VideoCompositor:
             dedup: 是否启用去重处理
             insert_range: 自适应插入范围 (min_t, max_t)，优先于 insert_at
             max_duration: 最终视频最大时长（秒），0=不限制
+            watermark_text: 水印文字，空字符串=不加水印
+            watermark_style: 水印样式 dict（fontsize/opacity/drift）
         """
         if not os.path.isfile(input_video):
             return {"success": False, "error": f"输入视频不存在: {input_video}"}
@@ -246,7 +281,8 @@ class VideoCompositor:
                 logger.info(f"原视频时长 ({duration:.1f}s) <= 插入点 ({insert_at}s)，将在末尾拼接")
                 return self._concat_at_end(input_video, guide_video, output_path,
                                            w, h, fps, sr, guide_duration,
-                                           dedup_proc, tail_anim, max_duration)
+                                           dedup_proc, tail_anim, max_duration, category,
+                                           watermark_text, watermark_style)
 
             # 计算 back 段结束时间（截尾 + 时长控制）
             back_end = self._calc_back_end(duration, insert_at, effective_guide, max_duration)
@@ -332,7 +368,7 @@ class VideoCompositor:
                 if tail_path:
                     tail_idx = len(inputs) // 2
                     inputs.extend(["-i", tail_path])
-                    tail_scale = f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2"
+                    tail_scale = f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1"
                     filter_parts.extend([
                         f"[{tail_idx}:v]{tail_scale},fps={fps:.6f},setpts=PTS-STARTPTS[v4]",
                         f"[{tail_idx}:a]aresample={sr},asetpts=PTS-STARTPTS[a4]",
@@ -341,19 +377,40 @@ class VideoCompositor:
                     concat_labels = "[v1][a1][v2][a2][v3][a3][v4][a4]"
                     logger.info(f"尾部动画: {tail_path}")
 
-            # 4. concat
+            # 4. concat + 水印
             if dedup_proc:
                 final_filters = dedup_proc.final_dedup_filters()
                 final_v_chain = ",".join(final_filters)
                 filter_parts.append(
                     f"{concat_labels}concat=n={concat_n}:v=1:a=1[concatv][outa]"
                 )
-                filter_parts.append(f"[concatv]{final_v_chain}[outv]")
+                if watermark_text:
+                    filter_parts.append(f"[concatv]{final_v_chain}[wm_in]")
+                    filter_parts.append(
+                        self._build_watermark_filter(
+                            watermark_text, watermark_style or {}, "[wm_in]", "[outv]"
+                        )
+                    )
+                else:
+                    filter_parts.append(f"[concatv]{final_v_chain}[outv]")
                 logger.info(f"整体去重: {len(final_filters)} 个 filter")
             else:
-                filter_parts.append(
-                    f"{concat_labels}concat=n={concat_n}:v=1:a=1[outv][outa]"
-                )
+                if watermark_text:
+                    filter_parts.append(
+                        f"{concat_labels}concat=n={concat_n}:v=1:a=1[wm_in][outa]"
+                    )
+                    filter_parts.append(
+                        self._build_watermark_filter(
+                            watermark_text, watermark_style or {}, "[wm_in]", "[outv]"
+                        )
+                    )
+                else:
+                    filter_parts.append(
+                        f"{concat_labels}concat=n={concat_n}:v=1:a=1[outv][outa]"
+                    )
+
+            if watermark_text:
+                logger.info(f"水印: '{watermark_text}' drift={( watermark_style or {}).get('drift','lissajous')}")
 
             filter_complex = ";\n".join(filter_parts)
 
@@ -395,7 +452,10 @@ class VideoCompositor:
                        w: int, h: int, fps: float, sr: int,
                        guide_duration: float = 0,
                        dedup_proc=None, tail_anim=None,
-                       max_duration: float = 0) -> dict:
+                       max_duration: float = 0,
+                       category: str = "",
+                       watermark_text: str = "",
+                       watermark_style: Optional[dict] = None) -> dict:
         """原视频时长不足时，在末尾拼接引导视频"""
         guide_scale = f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2"
         inputs = ["-i", input_video, "-i", guide_video]
@@ -443,7 +503,7 @@ class VideoCompositor:
             if tail_path:
                 tail_idx = len(inputs) // 2
                 inputs.extend(["-i", tail_path])
-                tail_scale = f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2"
+                tail_scale = f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1"
                 filter_parts.extend([
                     f"[{tail_idx}:v]{tail_scale},fps={fps:.6f},setpts=PTS-STARTPTS[v3]",
                     f"[{tail_idx}:a]aresample={sr},asetpts=PTS-STARTPTS[a3]",
@@ -452,18 +512,36 @@ class VideoCompositor:
                 concat_labels = "[v1][a1][v2][a2][v3][a3]"
                 logger.info(f"尾部动画: {tail_path}")
 
-        # concat + 整体去重
+        # concat + 整体去重 + 水印
         if dedup_proc:
             final_filters = dedup_proc.final_dedup_filters()
             final_v_chain = ",".join(final_filters)
             filter_parts.append(
                 f"{concat_labels}concat=n={concat_n}:v=1:a=1[concatv][outa]"
             )
-            filter_parts.append(f"[concatv]{final_v_chain}[outv]")
+            if watermark_text:
+                filter_parts.append(f"[concatv]{final_v_chain}[wm_in]")
+                filter_parts.append(
+                    self._build_watermark_filter(
+                        watermark_text, watermark_style or {}, "[wm_in]", "[outv]"
+                    )
+                )
+            else:
+                filter_parts.append(f"[concatv]{final_v_chain}[outv]")
         else:
-            filter_parts.append(
-                f"{concat_labels}concat=n={concat_n}:v=1:a=1[outv][outa]"
-            )
+            if watermark_text:
+                filter_parts.append(
+                    f"{concat_labels}concat=n={concat_n}:v=1:a=1[wm_in][outa]"
+                )
+                filter_parts.append(
+                    self._build_watermark_filter(
+                        watermark_text, watermark_style or {}, "[wm_in]", "[outv]"
+                    )
+                )
+            else:
+                filter_parts.append(
+                    f"{concat_labels}concat=n={concat_n}:v=1:a=1[outv][outa]"
+                )
 
         filter_complex = ";\n".join(filter_parts)
 

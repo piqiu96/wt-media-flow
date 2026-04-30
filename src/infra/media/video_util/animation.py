@@ -15,22 +15,45 @@ class TailAnimation:
         self.ffmpeg_path = ffmpeg_path
 
     def get_tail_source(self, w: int, h: int, sr: int, fps: float,
-                        overlay_dir: str) -> str | None:
+                        overlay_dir: str, category: str = "") -> str | None:
         """返回尾部动画视频路径
 
-        优先从 overlay_dir 随机选一个视频；目录为空则自动生成。
+        查找顺序：
+          1. overlay_dir/{category}/  （有 category 时优先）
+          2. overlay_dir/             （全局兜底）
+          3. FFmpeg 自动生成          （目录均为空时）
         返回 None 表示无法提供尾部动画。
         """
-        # 优先从素材目录选
-        if os.path.isdir(overlay_dir):
+        dirs_to_try = []
+        if category:
+            dirs_to_try.append(os.path.join(overlay_dir, category))
+        dirs_to_try.append(overlay_dir)
+
+        for d in dirs_to_try:
+            if not os.path.isdir(d):
+                continue
             files = [
-                f for f in os.listdir(overlay_dir)
+                f for f in os.listdir(d)
                 if Path(f).suffix.lower() in self.VIDEO_EXTENSIONS
             ]
             if files:
-                return os.path.join(overlay_dir, random.choice(files))
+                return os.path.join(d, random.choice(files))
 
-        # 目录为空 → FFmpeg 自动生成
+        # 根目录无文件 → 扫所有子目录（如 dance/ live/ anime/）
+        if os.path.isdir(overlay_dir):
+            all_files = []
+            for sub in os.listdir(overlay_dir):
+                sub_path = os.path.join(overlay_dir, sub)
+                if os.path.isdir(sub_path):
+                    all_files.extend(
+                        os.path.join(sub_path, f)
+                        for f in os.listdir(sub_path)
+                        if Path(f).suffix.lower() in self.VIDEO_EXTENSIONS
+                    )
+            if all_files:
+                return random.choice(all_files)
+
+        # 所有目录均为空 → FFmpeg 自动生成
         return self._generate(w, h, sr, fps)
 
     def _generate(self, w: int, h: int, sr: int, fps: float) -> str | None:

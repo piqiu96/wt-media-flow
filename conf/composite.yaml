@@ -12,6 +12,7 @@ guide_by_category:
   三角洲: data/guides/三角洲/guide.mp4
   暗区突围: data/guides/暗区突围/guide.mp4
   蛋仔派对: data/guides/蛋仔派对/guide.mp4
+  火影忍者: data/guides/火影忍者/guide.mp4
 
 # 合成参数
 insert_at: 10                       # 插入位置（秒）
@@ -24,6 +25,27 @@ dedup: true                         # 开启视频去重（默认 true）
 
 # 输出目录
 output_dir: data/output/
+
+# 水印配置（动态漂移水印）
+# enabled: 顶层开关；platforms: 白名单（enabled=true 时只有列出的平台才判断 rules）
+# rules: 每个平台的水印参数；无匹配 rule 时按默认参数渲染
+watermark:
+  enabled: true
+  platforms: [bilibili, baijiahao]
+  rules:
+    - platform: bilibili
+      text_source: account_name   # account_name | fixed
+      # fixed_text: "固定文案"    # text_source=fixed 时生效
+      style:
+        fontsize: 22
+        opacity: 0.25
+        drift: lissajous          # lissajous | static
+    - platform: baijiahao
+      text_source: account_name
+      style:
+        fontsize: 22
+        opacity: 0.25
+        drift: lissajous
 
 # 编码参数（通常不需要改，settings.py 中有默认值）
 # video_codec: libx264

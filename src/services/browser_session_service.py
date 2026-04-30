@@ -98,6 +98,54 @@ class BrowserSessionService:
             pass
         return page
 
+    def reconnect(self, session: BrowserSession) -> bool:
+        """断开旧 CDP 连接并重新连接，不关闭浏览器进程，原地更新 session。
+
+        用于上传/操作途中 CDP 意外断开的恢复场景。
+        """
+        logger.info(f"尝试重连 CDP: profile_id={session.profile_id}")
+        # 1. 仅停止 Python 侧 playwright（不调 BitBrowser 关闭接口）
+        try:
+            if session._playwright:
+                session._playwright.stop()
+        except Exception:
+            pass
+
+        try:
+            # 2. BitBrowser 若已在运行，open_browser 返回已有调试端口
+            browser_info = self._bit_api.open_browser(session.profile_id)
+            debug_port = browser_info.get("data", {}).get("http", "")
+            if not debug_port:
+                logger.error("重连失败：未获取到调试端口")
+                return False
+            if not debug_port.startswith("http"):
+                debug_port = f"http://{debug_port}"
+
+            # 3. 重新连接 CDP
+            pw = sync_playwright().start()
+            browser = pw.chromium.connect_over_cdp(debug_port)
+            ctx = browser.contexts[0]
+
+            # 4. 挂诊断监听
+            browser.on("disconnected",
+                        lambda: logger.warning("[DIAG] browser disconnected (CDP dropped)"))
+            ctx.on("close", lambda: logger.warning("[DIAG] BrowserContext closed"))
+            for p in ctx.pages:
+                self._attach_page_diag(p)
+            ctx.on("page", lambda np: self._attach_page_diag(np))
+
+            # 5. 原地更新 session
+            session.browser = browser
+            session.context = ctx
+            session.debug_port = debug_port
+            session._playwright = pw
+
+            logger.info(f"CDP 重连成功，当前 Tab 数: {len(ctx.pages)}")
+            return True
+        except Exception as e:
+            logger.error(f"重连失败: {e}")
+            return False
+
     def close(self, session: BrowserSession):
         """关闭 Playwright → 关闭比特浏览器"""
         try:

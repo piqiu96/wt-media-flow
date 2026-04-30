@@ -17,7 +17,7 @@ class PlanWorkflow:
 
     # ── create ────────────────────────────────────────────────
 
-    def create(self, date: str = "today", dry_run: bool = False) -> dict:
+    def create(self, user_id: int, date: str = "today", dry_run: bool = False) -> dict:
         from infra.db.database import SessionLocal
 
         import platforms  # noqa: F401  触发注册
@@ -29,25 +29,21 @@ class PlanWorkflow:
         db = SessionLocal()
         try:
             svc = PlanService(db)
+            from infra.db.repositories import UserRepository, AccountRepository
 
-            accounts = svc.get_active_accounts()
+            # 加载用户
+            user = UserRepository(db).get_by_id(user_id)
+            if not user:
+                return {"success": False, "message": f"用户不存在: user_id={user_id}"}
+
+            # 取该用户名下所有有效账号
+            accounts = AccountRepository(db).get_active_accounts_by_user(user_id)
             if not accounts:
-                logger.warning("没有 active 账号")
-                return {"success": False, "message": "没有 active 账号"}
+                logger.warning(f"用户 {user.name}(id={user_id}) 下没有有效账号（status=active）")
+                return {"success": False, "message": f"用户 {user.name} 下没有有效账号"}
 
-            # 按平台 capabilities 分组账号
-            strict_accounts = []   # allows_same_source_reuse=False（百家号等）
-            reuse_accounts = []    # allows_same_source_reuse=True（哔哩哔哩等）
-            for a in accounts:
-                plat = a.platform or "baijiahao"
-                try:
-                    caps = PlatformRegistry.get_capabilities(plat)
-                    if caps.allows_same_source_reuse:
-                        reuse_accounts.append(a)
-                    else:
-                        strict_accounts.append(a)
-                except ValueError:
-                    strict_accounts.append(a)
+            pool_key = user.pool
+            plan_name = f"{plan_date} {user.name} 发布计划"
 
             acc_quota = {a.id: a.daily_limit for a in accounts}
             acc_tags: dict[int, set] = {
@@ -56,55 +52,35 @@ class PlanWorkflow:
             }
             assignments: list[tuple] = []
 
-            # ── 第一轮：strict 账号（source_vid 全局去重）──
-            if strict_accounts:
-                available = svc.get_unassigned_composited(limit=500)
-                if available:
-                    vt_pool = list(available)
-                    random.shuffle(vt_pool)
-                    for vt in vt_pool:
-                        vt_cat = (vt.category or "").strip()
-                        candidates = [
-                            a for a in strict_accounts
-                            if acc_quota.get(a.id, 0) > 0
-                            and (not vt_cat or vt_cat in acc_tags.get(a.id, set()))
-                        ]
-                        if not candidates:
-                            if all(acc_quota.get(a.id, 0) == 0 for a in strict_accounts):
-                                break
-                            continue
-                        acc = random.choice(candidates)
-                        assignments.append((acc, vt))
-                        acc_quota[acc.id] -= 1
+            # ── 按平台分组，每个平台独立去重 ──
+            plat_groups: dict[str, list] = {}
+            for a in accounts:
+                plat = a.platform or "baijiahao"
+                plat_groups.setdefault(plat, []).append(a)
 
-            # ── 第二轮：reuse 账号（按平台级去重，允许跨平台复用 source_vid）──
-            if reuse_accounts:
-                # 按平台分组
-                plat_groups: dict[str, list] = {}
-                for a in reuse_accounts:
-                    plat = a.platform or "bilibili"
-                    plat_groups.setdefault(plat, []).append(a)
-
-                for plat, plat_accs in plat_groups.items():
+            for plat, plat_accs in plat_groups.items():
+                if pool_key:
+                    available = svc.get_composited_for_pool(pool_key, plat, limit=500)
+                else:
                     available = svc.get_composited_for_platform(plat, limit=500)
-                    if not available:
+                if not available:
+                    continue
+                vt_pool = list(available)
+                random.shuffle(vt_pool)
+                for vt in vt_pool:
+                    vt_cat = (vt.category or "").strip()
+                    candidates = [
+                        a for a in plat_accs
+                        if acc_quota.get(a.id, 0) > 0
+                        and (not vt_cat or vt_cat in acc_tags.get(a.id, set()))
+                    ]
+                    if not candidates:
+                        if all(acc_quota.get(a.id, 0) == 0 for a in plat_accs):
+                            break
                         continue
-                    vt_pool = list(available)
-                    random.shuffle(vt_pool)
-                    for vt in vt_pool:
-                        vt_cat = (vt.category or "").strip()
-                        candidates = [
-                            a for a in plat_accs
-                            if acc_quota.get(a.id, 0) > 0
-                            and (not vt_cat or vt_cat in acc_tags.get(a.id, set()))
-                        ]
-                        if not candidates:
-                            if all(acc_quota.get(a.id, 0) == 0 for a in plat_accs):
-                                break
-                            continue
-                        acc = random.choice(candidates)
-                        assignments.append((acc, vt))
-                        acc_quota[acc.id] -= 1
+                    acc = random.choice(candidates)
+                    assignments.append((acc, vt))
+                    acc_quota[acc.id] -= 1
 
             if not assignments:
                 logger.warning("所有账号今日配额已满或无可用视频")
@@ -132,7 +108,7 @@ class PlanWorkflow:
                         "count": len(assignments)}
 
             # 写库
-            plan = svc.create_plan(plan_date)
+            plan = svc.create_plan(plan_date, name=plan_name, user_id=user_id)
             order_counters: dict[int, int] = {}
             for acc, vt in assignments:
                 idx = order_counters.get(acc.id, 0)
@@ -304,6 +280,137 @@ class PlanWorkflow:
                 "passed": passed_count,
                 "not_passed": not_passed_count,
             }
+
+        finally:
+            db.close()
+
+    # ── stats ─────────────────────────────────────────────────
+
+    def stats(self, plan_id: int | None = None, since_date=None) -> dict:
+        """抓取已发布视频的播放/点赞/评论数，写入 plan_items 统计字段。
+        plan_id 和 since_date 至少传一个，也可同时传。
+        平台支持：baijiahao（好看视频页）、bilibili；其他平台跳过。
+        """
+        import re
+        from infra.db.database import SessionLocal
+        from infra.db.repositories import PlanItemRepository, AccountRepository, BrowserRepository
+        from services.browser_session_service import BrowserSessionService
+
+        db = SessionLocal()
+        try:
+            item_repo = PlanItemRepository(db)
+            acc_repo  = AccountRepository(db)
+
+            items = item_repo.get_published_for_stats(plan_id=plan_id, since_date=since_date)
+            if not items:
+                msg = "无已发布条目可抓取"
+                logger.info(msg)
+                return {"success": True, "message": msg, "updated": 0}
+
+            logger.info(f"共 {len(items)} 条已发布记录待抓取统计")
+
+            # 取一个有 profile_id 的 active 账号
+            accounts = acc_repo.get_active_accounts()
+            bit_profile_id = None
+            for acc in accounts:
+                pid = acc.profile_id
+                if not pid and acc.browser_id:
+                    br = BrowserRepository(db).get_by_id(acc.browser_id)
+                    pid = br.profile_id if br else None
+                if pid:
+                    bit_profile_id = pid
+                    break
+
+            if not bit_profile_id:
+                return {"success": False, "message": "未找到可用比特浏览器，无法抓取统计数据"}
+
+            def _fetch_haokan(url: str, page) -> dict:
+                """从好看视频页面抓取播放/点赞/评论数"""
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                page.wait_for_timeout(2000)
+                raw = page.evaluate(r"""() => {
+                    const get = sel => {
+                        const el = document.querySelector(sel);
+                        return el ? el.innerText.trim() : "";
+                    };
+                    return {
+                        play_raw: get(".extrainfo-playnums"),
+                        like:     get(".extrainfo-zan"),
+                        comment:  get(".extrainfo-comments"),
+                    };
+                }""")
+                m = re.search(r"(\d[\d,]*)", raw.get("play_raw", ""))
+                view  = int(m.group(1).replace(",", "")) if m else None
+                like  = int(raw["like"])  if raw.get("like",  "").isdigit() else None
+                comm  = int(raw["comment"]) if raw.get("comment", "").isdigit() else None
+                return {"view_count": view, "like_count": like, "comment_count": comm}
+
+            def _fetch_bilibili(url: str, page) -> dict:
+                """从 B站视频页面抓取播放/点赞/评论数"""
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                page.wait_for_timeout(3000)
+                raw = page.evaluate(r"""() => {
+                    const get = sel => {
+                        const el = document.querySelector(sel);
+                        return el ? el.innerText.trim() : "";
+                    };
+                    return {
+                        play:    get(".view.item span") || get("[class*='play'] .num") || get(".bpx-player-ctrl-view .num"),
+                        like:    get(".video-like-info") || get("[class*='like'] .num"),
+                        comment: get(".total-reply") || get("[class*='comment'] .total-reply"),
+                    };
+                }""")
+                def parse_num(s):
+                    if not s:
+                        return None
+                    s = s.replace(",", "").replace("万", "0000").strip()
+                    m = re.search(r"(\d+)", s)
+                    return int(m.group(1)) if m else None
+                return {
+                    "view_count":    parse_num(raw.get("play")),
+                    "like_count":    parse_num(raw.get("like")),
+                    "comment_count": parse_num(raw.get("comment")),
+                }
+
+            updated = 0
+            skipped = 0
+            browser_svc = BrowserSessionService()
+            session = browser_svc.open(bit_profile_id)
+            try:
+                page = browser_svc.new_page(session)
+                for item in items:
+                    url      = item.published_url or ""
+                    platform = item.platform or "baijiahao"
+                    try:
+                        if "baijiahao" in url or "haokan" in url:
+                            s = _fetch_haokan(url, page)
+                        elif "bilibili" in url:
+                            s = _fetch_bilibili(url, page)
+                        else:
+                            logger.warning(f"  跳过不支持的平台 url={url}")
+                            skipped += 1
+                            continue
+
+                        item_repo.update_stats(
+                            item.id,
+                            view_count=s["view_count"],
+                            like_count=s["like_count"],
+                            comment_count=s["comment_count"],
+                        )
+                        logger.info(
+                            f"  item={item.id} [{platform}] "
+                            f"播放={s['view_count']} 点赞={s['like_count']} 评论={s['comment_count']}"
+                        )
+                        updated += 1
+                    except Exception as e:
+                        logger.warning(f"  item={item.id} 抓取失败: {e}")
+                        skipped += 1
+            finally:
+                browser_svc.close(session)
+
+            msg = f"统计更新完成: 成功 {updated} 条 / 跳过/失败 {skipped} 条"
+            logger.info(msg)
+            return {"success": True, "message": msg, "updated": updated, "skipped": skipped}
 
         finally:
             db.close()

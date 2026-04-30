@@ -151,7 +151,8 @@ class PublishWorkflow:
                                 submit_result = publisher.submit(page)
                                 success = submit_result.get("success", False)
                                 if not success:
-                                    logger.warning(f"  自动提交失败: {submit_result.get('error', '')}")
+                                    logger.warning(f"  自动提交失败: {submit_result.get('error', '')}，降级为人工确认")
+                                    success = wait_confirm("自动提交失败，请手动点击发布后按 Enter 确认")
 
                             if success:
                                 published_url = ""

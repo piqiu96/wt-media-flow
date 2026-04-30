@@ -1,0 +1,21 @@
+{
+  "id": "pool-hz",
+  "name": "黄邱",
+  "categories": {
+     "三角洲": {
+      "guide": "data/guides/三角洲/guide.mp4",
+      "insert_at": 12,
+      "max_duration": 150
+    },
+    "蛋仔派对": {
+      "guide": "data/guides/蛋仔派对/guide.mp4",
+      "insert_at": 10,
+      "max_duration": 150
+    },
+    "火影忍者": {
+      "guide": "data/guides/火影忍者/guide.mp4",
+      "insert_at": 10,
+      "max_duration": 150
+    }
+  }
+}

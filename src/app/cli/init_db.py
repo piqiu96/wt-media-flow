@@ -54,6 +54,14 @@ class InitCommand(BaseCommand):
             "ALTER TABLE plan_items ADD COLUMN publish_mode VARCHAR(30) DEFAULT 'manual_confirm'",
             # videos 新增审核状态（默认 approved 保持向后兼容）
             "ALTER TABLE videos ADD COLUMN review_status VARCHAR(20) DEFAULT 'approved'",
+            # users 表：运营用户管理
+            "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, name VARCHAR(100) NOT NULL, username VARCHAR(100) UNIQUE, role VARCHAR(50) DEFAULT 'operator', pool VARCHAR(100), status VARCHAR(20) DEFAULT 'active', wecom_id VARCHAR(100), created_at DATETIME DEFAULT (CURRENT_TIMESTAMP))",
+            # accounts 新增 user_id 外键
+            "ALTER TABLE accounts ADD COLUMN user_id INTEGER REFERENCES users(id)",
+            # publish_plans 新增 user_id 外键
+            "ALTER TABLE publish_plans ADD COLUMN user_id INTEGER REFERENCES users(id)",
+            # video_tasks 新增 pool 字段（对应 conf/pools/{pool}.json 的 id 字段）
+            "ALTER TABLE video_tasks ADD COLUMN pool VARCHAR(100)",
         ]
         with engine.connect() as conn:
             for sql in migrations:

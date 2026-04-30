@@ -37,6 +37,11 @@ class CompositeCommand(BaseCommand):
         parser.add_argument("--recomposite", type=int, metavar="DAYS",
                             help="重新合成最近 N 天视频")
         parser.add_argument("--category", help="品类过滤")
+        parser.add_argument("--pool", help="视频池 key，对应 conf/pools/{key}.json，读取引导视频配置")
+        parser.add_argument("--batch", action="store_true",
+                            help="批量合成：自动从数据库取该品类所有未合成素材")
+        parser.add_argument("--limit", type=int, default=200,
+                            help="--batch 模式最多合成条数，默认 200")
 
     def _resolve_insert_at(self, args, config) -> tuple[float, tuple | None]:
         insert_range_str = self.merge_args(args, config, "insert_range") or config.get("insert_range")
@@ -78,8 +83,15 @@ class CompositeCommand(BaseCommand):
 
         category_for_guide = getattr(args, "category", None) or config.get("category")
         guide_by_cat = config.get("guide_by_category", {})
+        pool_key = getattr(args, "pool", None) or config.get("pool")
+
         if getattr(args, "guide", None):
             guide = args.guide
+        elif pool_key and category_for_guide:
+            # 优先从 pool JSON 配置读取引导视频路径
+            from conf.pool_config import get_pool_guide
+            pool_guide = get_pool_guide(pool_key, category_for_guide)
+            guide = pool_guide or guide_by_cat.get(category_for_guide) or config.get("guide_video")
         elif category_for_guide and category_for_guide in guide_by_cat:
             guide = guide_by_cat[category_for_guide]
         else:
@@ -97,6 +109,7 @@ class CompositeCommand(BaseCommand):
         workers = getattr(args, "workers", 1) or config.get("workers", 1)
         auto_publish = getattr(args, "auto_publish", False) or config.get("auto_publish", False)
         account_id = getattr(args, "account_id", None) or config.get("account_id")
+        watermark_cfg = config.get("watermark", {})
 
         # --recomposite
         recomposite_days = getattr(args, "recomposite", None)
@@ -110,12 +123,36 @@ class CompositeCommand(BaseCommand):
                 workers=workers,
             )
 
+        # --batch
+        if getattr(args, "batch", False):
+            if not category_for_guide:
+                return {"success": False, "message": "--batch 模式需要指定 --category"}
+            from infra.db.database import SessionLocal
+            from infra.db.repositories import VideoRepository
+            db = SessionLocal()
+            try:
+                batch_vids = VideoRepository(db).get_unprocessed_vids(
+                    category=category_for_guide, limit=getattr(args, "limit", 200)
+                )
+            finally:
+                db.close()
+            if not batch_vids:
+                return {"success": False, "message": f"没有可合成的 {category_for_guide} 素材"}
+            logger.info(f"--batch: 找到 {len(batch_vids)} 条待合成素材（{category_for_guide}）")
+            return wf.composite_by_vids(
+                batch_vids, guide, insert_at, output_dir, guide_duration,
+                dedup, insert_range, max_duration,
+                workers=workers, auto_publish=auto_publish, account_id=account_id,
+                watermark_cfg=watermark_cfg, pool=pool_key,
+            )
+
         # --vids
         if vids:
             return wf.composite_by_vids(
                 vids, guide, insert_at, output_dir, guide_duration,
                 dedup, insert_range, max_duration,
                 workers=workers, auto_publish=auto_publish, account_id=account_id,
+                watermark_cfg=watermark_cfg, pool=pool_key,
             )
 
         # --vid
@@ -124,6 +161,7 @@ class CompositeCommand(BaseCommand):
                 vid, guide, insert_at, output_dir, guide_duration,
                 dedup, insert_range, max_duration,
                 auto_publish=auto_publish, account_id=account_id,
+                watermark_cfg=watermark_cfg, pool=pool_key,
             )
 
         # --input

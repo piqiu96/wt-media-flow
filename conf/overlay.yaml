@@ -1,0 +1,29 @@
+# 尾部动画素材采集关键词
+# 使用方式: python src/main.py overlay run --category dance --config conf/overlay.yaml
+#           python src/main.py overlay run --category anime --config conf/overlay.yaml
+#           python src/main.py overlay run --category live --config conf/overlay.yaml
+
+overlay_keywords:
+  # 颜值舞蹈：高颜值擦边热门女生舞蹈
+  dance:
+    - "辣妹热舞"
+    - "纯欲舞蹈"
+    - "性感女生跳舞"
+    - "擦边舞蹈"
+    - "高颜值美女跳舞"
+
+  # 擦边女主播：性感单人主播舞蹈
+  live:
+    - "女主播跳舞"
+    - "主播热舞"
+    - "擦边女主播"
+    - "性感主播舞蹈"
+    - "比基尼热舞"
+
+  # 动漫二次元
+  anime:
+    - "动漫 混剪"
+    - "二次元 跳舞"
+    - "番剧 高燃"
+    - "动漫 卡点"
+    - "vtuber 舞蹈"

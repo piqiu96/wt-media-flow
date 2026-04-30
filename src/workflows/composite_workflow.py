@@ -26,7 +26,9 @@ class CompositeWorkflow:
                          insert_range, max_duration: float,
                          auto_publish: bool = False,
                          account_id: int = None,
-                         existing_task_id: int = None) -> dict:
+                         existing_task_id: int = None,
+                         watermark_cfg: dict = None,
+                         pool: str = None) -> dict:
         """通过 source_vid 从素材库查询，下载远程视频后合成"""
         from infra.db.database import SessionLocal
         from infra.db.repositories import VideoRepository, VideoTaskRepository
@@ -41,6 +43,7 @@ class CompositeWorkflow:
         try:
             repo = VideoRepository(db)
             vt_repo = VideoTaskRepository(db)
+            from infra.db.repositories import AccountRepository
 
             video = repo.get_by_source_vid("douyin", vid)
 
@@ -65,6 +68,7 @@ class CompositeWorkflow:
                     guide_path=guide,
                     category=video.category or "",
                     source_vid=video.source_vid,
+                    pool=pool,
                 )
             vt_repo.start_composite(vt.id)
 
@@ -85,9 +89,32 @@ class CompositeWorkflow:
             logger.info(f"去重: {'开启' if dedup else '关闭'}")
 
             compositor = VideoCompositor()
+
+            # 解析水印参数
+            watermark_text, watermark_style = "", {}
+            if watermark_cfg and watermark_cfg.get("enabled") and account_id:
+                account = AccountRepository(db).get_by_id(account_id)
+                if account and account.platform in watermark_cfg.get("platforms", []):
+                    rule = next(
+                        (r for r in watermark_cfg.get("rules", [])
+                         if r.get("platform") == account.platform),
+                        {}
+                    )
+                    src = rule.get("text_source", "account_name")
+                    watermark_text = (
+                        rule.get("fixed_text", "") if src == "fixed"
+                        else (account.name or "")
+                    )
+                    watermark_style = rule.get("style", {})
+                    if watermark_text:
+                        logger.info(f"水印: platform={account.platform} text='{watermark_text}'")
+
             result = compositor.composite(
                 input_path, guide, insert_at, output_path, guide_duration,
-                dedup=dedup, insert_range=insert_range, max_duration=max_duration
+                dedup=dedup, insert_range=insert_range, max_duration=max_duration,
+                category=video.category or "",
+                watermark_text=watermark_text,
+                watermark_style=watermark_style,
             )
 
             if result["success"]:
@@ -123,7 +150,9 @@ class CompositeWorkflow:
                           insert_range, max_duration: float,
                           workers: int = 1,
                           auto_publish: bool = False,
-                          account_id: int = None) -> dict:
+                          account_id: int = None,
+                          watermark_cfg: dict = None,
+                          pool: str = None) -> dict:
         """批量通过 source_vid 下载并合成"""
         if not guide:
             return {"success": False, "message": "请指定 --guide（引导视频路径）"}
@@ -146,6 +175,7 @@ class CompositeWorkflow:
                 vid, guide, cur_insert_at, output_dir, guide_duration,
                 dedup, insert_range, max_duration,
                 auto_publish=auto_publish, account_id=account_id,
+                watermark_cfg=watermark_cfg, pool=pool,
             )
             result["vid"] = vid
             status = "成功" if result.get("success") else "失败"

@@ -2,5 +2,6 @@
 from .dedup import VideoDedup
 from .scene import SceneDetector
 from .animation import TailAnimation
+from .clipper import OverlayClipper
 
-__all__ = ["VideoDedup", "SceneDetector", "TailAnimation"]
+__all__ = ["VideoDedup", "SceneDetector", "TailAnimation", "OverlayClipper"]

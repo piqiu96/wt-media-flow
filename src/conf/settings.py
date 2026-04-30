@@ -5,6 +5,7 @@ from pydantic_settings import BaseSettings
 # 获取项目根目录（src/conf/settings.py → src/conf → src → wt-media-pub）
 BASE_DIR = Path(__file__).parent.parent.parent
 DATA_DIR = BASE_DIR / "data"
+STORE_DIR = BASE_DIR / "store"
 LOG_DIR = BASE_DIR / "log"
 CONF_DIR = BASE_DIR / "conf"
 BIN_DIR = BASE_DIR / "bin"
@@ -13,6 +14,7 @@ class Settings(BaseSettings):
     # 项目路径配置
     BASE_DIR: Path = BASE_DIR
     DATA_DIR: Path = DATA_DIR
+    STORE_DIR: Path = STORE_DIR
     LOG_DIR: Path = LOG_DIR
     CONF_DIR: Path = CONF_DIR
 
@@ -20,7 +22,7 @@ class Settings(BaseSettings):
     BIT_API_URL: str = "http://127.0.0.1:54345"
 
     # 数据库配置
-    DATABASE_URL: str = f"sqlite:///{DATA_DIR}/publisher.db"
+    DATABASE_URL: str = f"sqlite:///{STORE_DIR}/publisher.db"
 
     # 日志配置
     LOG_LEVEL: str = "INFO"
@@ -44,10 +46,15 @@ class Settings(BaseSettings):
     # 企微机器人通知（空字符串则跳过通知）
     WECOM_WEBHOOK_URL: str = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=8e535f94-9ff5-441b-9ef7-ff390655d58a"
 
+    # AI 标题生成（DeepSeek，空字符串则跳过）
+    AI_API_KEY: str = "sk-d3cc1ee29c2241b6bfb0fa27ed09fae2"
+    AI_BASE_URL: str = "https://api.deepseek.com/anthropic"
+
     # 合成默认配置
     GUIDE_DIR: str = str(DATA_DIR / "guides")
     OUTPUT_DIR: str = str(DATA_DIR / "output")
     OVERLAY_DIR: str = str(DATA_DIR / "overlays")
+    OVERLAY_SOURCE_DIR: str = str(DATA_DIR / "overlay_sources")
     STICKER_DIR: str = str(DATA_DIR / "stickers")
     DEFAULT_INSERT_AT: float = 10.0
     DEFAULT_INSERT_RANGE: str = "10-20"     # insert_at 默认随机范围
@@ -62,6 +69,7 @@ settings = Settings()
 
 # 确保目录存在
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+STORE_DIR.mkdir(parents=True, exist_ok=True)
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 BIN_DIR.mkdir(parents=True, exist_ok=True)
 (DATA_DIR / "videos").mkdir(parents=True, exist_ok=True)
@@ -69,4 +77,5 @@ BIN_DIR.mkdir(parents=True, exist_ok=True)
 (DATA_DIR / "guides").mkdir(parents=True, exist_ok=True)
 (DATA_DIR / "output").mkdir(parents=True, exist_ok=True)
 (DATA_DIR / "overlays").mkdir(parents=True, exist_ok=True)
+(DATA_DIR / "overlay_sources").mkdir(parents=True, exist_ok=True)
 (DATA_DIR / "stickers").mkdir(parents=True, exist_ok=True)

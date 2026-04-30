@@ -34,8 +34,11 @@ class PlanService:
     def get_composited_for_platform(self, platform: str, limit: int = 500):
         return self.vt_repo.get_composited_for_platform(platform=platform, limit=limit)
 
-    def create_plan(self, plan_date: date_type):
-        return self.plan_repo.create(plan_date=plan_date)
+    def get_composited_for_pool(self, pool: str, platform: str, limit: int = 500):
+        return self.vt_repo.get_composited_for_pool(pool=pool, platform=platform, limit=limit)
+
+    def create_plan(self, plan_date: date_type, name: str = None, user_id: int = None):
+        return self.plan_repo.create(plan_date=plan_date, name=name, user_id=user_id)
 
     def create_plan_item(self, plan_id: int, account_id: int,
                          video_task_id: int, order_idx: int,

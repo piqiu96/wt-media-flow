@@ -6,6 +6,23 @@ import enum
 
 Base = declarative_base()
 
+
+class User(Base):
+    """运营用户表：管理账号归属和视频池绑定"""
+    __tablename__ = "users"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    name       = Column(String(100), nullable=False)             # 姓名/昵称，如"小王"
+    username   = Column(String(100), nullable=True, unique=True) # 登录名（可空）
+    role       = Column(String(50), default="operator")          # 角色：operator / admin / viewer
+    pool       = Column(String(100), nullable=True)              # 视频池 key，如"pool-a"（对应 conf/pools/pool-a.json）
+    status     = Column(String(20), default="active")            # active / inactive
+    wecom_id   = Column(String(100), nullable=True)              # 企微 userid，定向通知用
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    accounts   = relationship("Account", back_populates="user")
+
+
 class PlatformEnum(str, enum.Enum):
     BILIBILI = "bilibili"
     BAIJIAHAO = "baijiahao"
@@ -66,12 +83,15 @@ class Account(Base):
     username    = Column(String(100), nullable=True)                 # 登录用户名（可选）
     tag         = Column(String(100), nullable=True)                 # 账号类型标签，如 "游戏"
     group_id    = Column(String(50), nullable=True)
+    user_id     = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)  # 归属运营用户
     is_new      = Column(Boolean, default=True)
     daily_limit = Column(Integer, default=3)
-    status      = Column(String(20), default="active")
-    created_at  = Column(DateTime, default=datetime.utcnow)
+    status           = Column(String(20), default="active")
+    disabled_reason  = Column(String(500), nullable=True)   # 禁用原因
+    created_at       = Column(DateTime, default=datetime.utcnow)
 
     browser     = relationship("Browser", backref="accounts")
+    user        = relationship("User", back_populates="accounts")
 
 class Video(Base):
     __tablename__ = "videos"
@@ -148,6 +168,9 @@ class VideoTask(Base):
     # 去重用冗余字段（来自 videos.source_vid，合成时写入）
     source_vid      = Column(String(200), nullable=True, index=True)
 
+    # 视频池（合成时写入，对应 conf/pools/{pool}.json 的 id 字段）
+    pool            = Column(String(100), nullable=True, index=True)
+
     # 发布信息
     account_id      = Column(Integer, ForeignKey("accounts.id"), nullable=True)
     published_url   = Column(String(500), nullable=True)  # 发布成功后的视频链接
@@ -165,9 +188,10 @@ class PublishPlan(Base):
     __tablename__ = "publish_plans"
 
     id          = Column(Integer, primary_key=True, autoincrement=True)
-    name        = Column(String(200), nullable=True)                  # 计划名称，如 "2026-04-14 发布"
+    name        = Column(String(200), nullable=True)                  # 计划名称，如 "2026-04-14 小王 发布"
     date        = Column(Date, nullable=False, index=True)            # 计划日期
     status      = Column(String(20), default="pending")              # pending / running / done
+    user_id     = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)  # 所属运营用户
     created_at  = Column(DateTime, default=datetime.utcnow)
 
     items       = relationship("PlanItem", backref="plan", lazy="dynamic")
@@ -198,6 +222,12 @@ class PlanItem(Base):
 
     # 通知
     notified        = Column(Boolean, default=False)  # 是否已推送企微通知
+
+    # 视频数据统计（定时从好看视频页抓取）
+    view_count       = Column(Integer, nullable=True)   # 播放数
+    like_count       = Column(Integer, nullable=True)   # 点赞数
+    comment_count    = Column(Integer, nullable=True)   # 评论数
+    stats_fetched_at = Column(DateTime, nullable=True)  # 最后抓取时间
 
 
 class CommentTask(Base):
