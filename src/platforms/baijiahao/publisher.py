@@ -79,7 +79,7 @@ class BaijiahaoPublisher:
 
             # 2. 找上传按钮并选择视频文件
             upload_selectors = [
-                'input[type="file"][accept*="video"]',
+                'input[type="file"][accept*=".mp4"]',
                 'input[type="file"]',
                 '[data-testid="video-upload-btn"]',
             ]

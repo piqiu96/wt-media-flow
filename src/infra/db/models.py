@@ -35,6 +35,7 @@ class VideoTaskStatusEnum(str, enum.Enum):
     PUBLISHING  = "publishing"   # 发布中
     SUCCESS     = "success"      # 发布成功
     FAILED      = "failed"       # 合成/发布失败
+    EXPIRED     = "expired"      # 已过期（素材发布时间超过5天，不再进入发布计划）
 
 
 class PlanItemStatusEnum(str, enum.Enum):
@@ -103,7 +104,6 @@ class Video(Base):
     cover_path = Column(String(500), nullable=True)
     tags = Column(String(500), nullable=True)
     remark = Column(Text, nullable=True)
-    status = Column(String(20), default="pending")
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # 分类标签（采集时指定）

@@ -21,7 +21,7 @@ class CleanupCommand(BaseCommand):
 
     def execute(self, args) -> dict:
         from infra.db.database import SessionLocal
-        from infra.db.repositories import VideoRepository
+        from infra.db.repositories import VideoRepository, VideoTaskRepository, PlanItemRepository
 
         days = args.days
         dry_run = args.dry_run
@@ -41,9 +41,56 @@ class CleanupCommand(BaseCommand):
               + ("  【预览模式，不实际删除】" if dry_run else ""))
         print()
 
+        # ── 阶段一：级联处理合成产物（video_tasks + plan_items） ──────────────
+        print("── 阶段一：合成产物 ──")
+        tasks_deleted = 0
+        tasks_mb = 0.0
+
+        for video in videos:
+            vid = video.source_vid or str(video.id)
+
+            db2 = SessionLocal()
+            try:
+                tasks = VideoTaskRepository(db2).get_all_by_video_id(video.id)
+            finally:
+                db2.close()
+
+            for task in tasks:
+                path = task.output_path
+                size_mb = 0.0
+                if path and os.path.isfile(path):
+                    size_mb = os.path.getsize(path) / 1024 / 1024
+                    tasks_mb += size_mb
+
+                if dry_run:
+                    print(f"  [预览] task_id={task.id}  vid={vid}  {size_mb:.1f}MB  {path or '(无路径)'}")
+                    tasks_deleted += 1
+                    continue
+
+                if path and os.path.isfile(path):
+                    try:
+                        os.remove(path)
+                        print(f"  [删除] task_id={task.id}  vid={vid}  ({size_mb:.1f}MB)  {path}")
+                    except Exception as e:
+                        logger.error(f"合成产物删除失败 {path}: {e}")
+                        continue
+                else:
+                    print(f"  [标记] task_id={task.id}  vid={vid}  文件不存在，仅标记数据库")
+
+                db3 = SessionLocal()
+                try:
+                    PlanItemRepository(db3).fail_pending_by_task(task.id)
+                    VideoTaskRepository(db3).mark_output_expired(task.id)
+                finally:
+                    db3.close()
+
+                tasks_deleted += 1
+
+        # ── 阶段二：删除原始下载（videos） ──────────────────────────────────
+        print("\n── 阶段二：原始下载 ──")
         deleted_count = 0
         skipped_count = 0
-        total_mb = 0.0
+        src_mb = 0.0
 
         for video in videos:
             vid = video.source_vid or str(video.id)
@@ -53,27 +100,25 @@ class CleanupCommand(BaseCommand):
             size_mb = 0.0
             if path and os.path.isfile(path):
                 size_mb = os.path.getsize(path) / 1024 / 1024
-                total_mb += size_mb
+                src_mb += size_mb
 
             if dry_run:
                 title = (video.title or "")[:30]
-                print(f"[预览] {pub_at}  {size_mb:.1f}MB  {title}  {path}")
+                print(f"  [预览] {pub_at}  {size_mb:.1f}MB  {title}  {path}")
                 deleted_count += 1
                 continue
 
-            # 删除文件
             if path and os.path.isfile(path):
                 try:
                     os.remove(path)
-                    print(f"[删除] vid={vid}  ({size_mb:.1f}MB)  {path}")
+                    print(f"  [删除] vid={vid}  ({size_mb:.1f}MB)  {path}")
                 except Exception as e:
-                    logger.error(f"删除失败 {path}: {e}")
+                    logger.error(f"原始文件删除失败 {path}: {e}")
                     skipped_count += 1
                     continue
             else:
-                print(f"[标记] vid={vid} 文件不存在，仅标记数据库")
+                print(f"  [标记] vid={vid} 文件不存在，仅标记数据库")
 
-            # 标记数据库
             db2 = SessionLocal()
             try:
                 VideoRepository(db2).mark_deleted(video.id)
@@ -82,10 +127,13 @@ class CleanupCommand(BaseCommand):
 
             deleted_count += 1
 
+        total_mb = tasks_mb + src_mb
         action = "预览" if dry_run else "删除"
-        msg = (f"{action}完成: {deleted_count} 条，释放 {total_mb:.1f}MB"
+        msg = (f"{action}完成: 合成产物 {tasks_deleted} 条({tasks_mb:.1f}MB)，"
+               f"原始下载 {deleted_count} 条({src_mb:.1f}MB)，"
+               f"合计释放 {total_mb:.1f}MB"
                + (f"，跳过 {skipped_count} 条" if skipped_count else ""))
         print(f"\n{msg}")
         return {"success": True, "message": msg,
-                "deleted": deleted_count, "skipped": skipped_count,
-                "freed_mb": round(total_mb, 1)}
+                "tasks_deleted": tasks_deleted, "deleted": deleted_count,
+                "skipped": skipped_count, "freed_mb": round(total_mb, 1)}

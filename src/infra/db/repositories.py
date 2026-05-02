@@ -115,15 +115,6 @@ class VideoRepository:
     def get_by_id(self, video_id: int) -> Optional[Video]:
         return self.db.query(Video).filter(Video.id == video_id).first()
 
-    def get_pending_videos(self, limit: int = 100) -> List[Video]:
-        return self.db.query(Video).filter(Video.status == "pending").limit(limit).all()
-
-    def update_status(self, video_id: int, status: str):
-        video = self.get_by_id(video_id)
-        if video:
-            video.status = status
-            self.db.commit()
-
     def create(self, path: str, title: str = None, description: str = None,
                cover_path: str = None, tags: str = None) -> Video:
         video = Video(
@@ -353,6 +344,22 @@ class VideoTaskRepository:
         return self.db.query(VideoTask).filter(
             VideoTask.video_id == video_id
         ).order_by(VideoTask.id.desc()).first()
+
+    def get_all_by_video_id(self, video_id: int) -> List[VideoTask]:
+        return self.db.query(VideoTask).filter(
+            VideoTask.video_id == video_id
+        ).all()
+
+    def mark_output_expired(self, task_id: int):
+        """合成产物文件删除后：output_path 清空，status → EXPIRED。
+        候选池查询 status==COMPOSITED，EXPIRED 自动被排除。
+        用 bulk update 绕过 ORM 枚举校验（DB 大写风格）。
+        """
+        self.db.query(VideoTask).filter(VideoTask.id == task_id).update(
+            {"status": "EXPIRED", "output_path": ""},
+            synchronize_session=False,
+        )
+        self.db.commit()
 
     def start_composite(self, task_id: int):
         """PENDING → COMPOSITING，写入 started_at"""
@@ -800,6 +807,20 @@ class PlanItemRepository:
             item.error_message = None
         self.db.commit()
         return len(items)
+
+    def fail_pending_by_task(self, video_task_id: int):
+        """退场时：将该 task 的 PENDING plan_items 置为 FAILED。
+        PUBLISHING / PUBLISHED / FAILED 状态不动。
+        """
+        self.db.query(PlanItem).filter(
+            PlanItem.video_task_id == video_task_id,
+            PlanItem.publish_status == PlanItemStatusEnum.PENDING,
+        ).update(
+            {"publish_status": PlanItemStatusEnum.FAILED,
+             "error_message": "视频已退场，合成产物已删除"},
+            synchronize_session=False,
+        )
+        self.db.commit()
 
 
 class CommentTaskRepository:

@@ -2,20 +2,14 @@
   "id": "pool-yy",
   "name": "挥雷",
   "categories": {
-    "三角洲": {
-      "guide": "data/guides/三角洲/猛攻节_guide.mp4",
-      "insert_at": 12,
-      "max_duration": 150
-    },
-    "蛋仔派对": {
-      "guide": "data/guides/蛋仔派对/蛋仔派对中国_guide.mp4",
-      "insert_at": 12,
-      "max_duration": 150
-    },
-    "火影忍者": {
-      "guide": "data/guides/火影忍者/火影手游中国_guide.mp4",
-      "insert_at": 12,
-      "max_duration": 150
-    }
+    "三角洲": { "guide": "data/guides/三角洲/三角洲_中国.mp4", "insert_at": 12, "max_duration": 180 },
+    "蛋仔派对": { "guide": "data/guides/蛋仔派对/蛋仔派对.mp4", "insert_at": 12, "max_duration": 180 },
+    "火影忍者": { "guide": "data/guides/火影忍者/火影手游_中国.mp4", "insert_at": 12, "max_duration": 180 },
+    "暗区突围": { "guide": "data/guides/暗区突围/暗区6.mp4", "insert_at": 12, "max_duration": 180 },
+    "星穹铁道": { "guide": "data/guides/星穹/gm8_中国.mp4", "insert_at": 12, "max_duration": 180 },
+    "荒野乱斗": { "guide": "data/guides/荒野/荒野乱斗.mp4", "insert_at": 10, "max_duration": 180 },
+    "光遇": { "guide": "data/guides/光遇/光遇.mp4", "insert_at": 10, "max_duration": 180 },
+    "洛克王国": { "guide": "data/guides/洛克王国/洛克王国.mp4", "insert_at": 12, "max_duration": 180 },
+    "第五人格": { "guide": "data/guides/第五人格/第五人格.mp4", "insert_at": 12, "max_duration": 180 }
   }
 }

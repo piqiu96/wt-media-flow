@@ -1,7 +1,7 @@
 """
 哔哩哔哩发布器 — 实现 PublisherProtocol
 
-三段式：fill_form → submit（自动提交） → fetch_published_url
+三段式：fill_form → submit（人工确认，空操作） → fetch_published_url
 """
 import os
 import re
@@ -41,7 +41,7 @@ class BilibiliPublisher:
         supports_cover_upload=True,
         supports_comment=False,          # 暂不支持评论
         supports_scheduled_publish=True,
-        requires_manual_confirm=False,   # B站支持自动提交
+        requires_manual_confirm=True,    # 改为人工确认，与百家号对齐
         allows_same_source_reuse=True,   # 同素材可多次分配（不同去重种子）
     )
 
@@ -268,33 +268,8 @@ class BilibiliPublisher:
     # ── 阶段 2：submit ────────────────────────────────────────
 
     def submit(self, page: Page) -> SubmitResult:
-        """点击投稿按钮"""
-        try:
-            submit_selectors = [
-                '#video-up-app > div.video-basic-wrp > div.video-basic > div.form > div:nth-child(17) > div > div > span',
-                '.submit-add:has-text("投稿")',
-                'button:has-text("投稿")',
-                '.submit-btn:has-text("投稿")',
-                'button:has-text("立即投稿")',
-                '[class*="submit"]:has-text("投稿")',
-                ':text-is("立即投稿")',
-                ':text-is("提交")',
-            ]
-            for sel in submit_selectors:
-                try:
-                    btn = page.locator(sel).first
-                    if btn.is_visible() and btn.is_enabled():
-                        btn.click()
-                        logger.info(f"已点击投稿: {sel}")
-                        time.sleep(random.uniform(2, 3))
-                        return SubmitResult(success=True)
-                except Exception:
-                    continue
-
-            raise RuntimeError("未找到可点击的投稿按钮")
-
-        except Exception as e:
-            return SubmitResult(success=False, error=str(e))
+        """B站改为人工确认模式，submit 为空操作"""
+        return SubmitResult(success=True)
 
     # ── 阶段 3：fetch_published_url ───────────────────────────
 

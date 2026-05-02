@@ -62,6 +62,8 @@ class InitCommand(BaseCommand):
             "ALTER TABLE publish_plans ADD COLUMN user_id INTEGER REFERENCES users(id)",
             # video_tasks 新增 pool 字段（对应 conf/pools/{pool}.json 的 id 字段）
             "ALTER TABLE video_tasks ADD COLUMN pool VARCHAR(100)",
+            # 删除废弃的 status 字段（已被 claw_status 完全取代）
+            "ALTER TABLE videos DROP COLUMN status",
         ]
         with engine.connect() as conn:
             for sql in migrations:
