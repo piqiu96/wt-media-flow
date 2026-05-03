@@ -10,6 +10,7 @@
     "荒野乱斗": { "guide": "data/guides/荒野/荒野乱斗.mp4", "insert_at": 10, "max_duration": 180 },
     "光遇": { "guide": "data/guides/光遇/光遇.mp4", "insert_at": 10, "max_duration": 180 },
     "洛克王国": { "guide": "data/guides/洛克王国/洛克王国.mp4", "insert_at": 12, "max_duration": 180 },
-    "第五人格": { "guide": "data/guides/第五人格/第五人格.mp4", "insert_at": 12, "max_duration": 180 }
+    "第五人格": { "guide": "data/guides/第五人格/第五人格.mp4", "insert_at": 12, "max_duration": 180 },
+    "王者荣耀": { "guide": "data/guides/王者/王者.mp4", "insert_at": 10, "max_duration": 180 }
   }
 }

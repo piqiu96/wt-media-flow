@@ -83,12 +83,14 @@ sed -n '1,180p' conf/claw.yaml
 
 如果要更新热门关键词，只调整 `conf/claw.yaml` 里对应 `keywords_by_category.<游戏品类>` 的列表，不改无关品类。
 
-### 3. 先预览抓取结果
+### 3. 先抓取结果
 
-关键词刚调整或需要人工筛选时，先 dry-run：
+关键词生成后直接执行fetch，等fetch入库以后不需要的直接该数据库状态就可以，这样避免浪费资源重复抓取。 执行后根据标题、标签、作者、点赞、评论、收藏等信息判断是否需要调整关键词，直到结果基本符合预期的热门活动/游戏攻略/活动攻略/装备攻略为止。
+
+游戏个数比较多的时候，需要控制好并发，避免出现过多的失败。通常抓取过程中最多3-4个游戏同时进行，其他的派对后面再抓取即可
 
 ```bash
-.venv/bin/python3 src/main.py claw --category <游戏品类> --config conf/claw.yaml --dry-run
+.venv/bin/python3 src/main.py claw --category <游戏品类> --config conf/claw.yaml --fetch
 ```
 
 如果无关内容太多，改窄关键词，或临时用单关键词验证：
