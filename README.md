@@ -320,3 +320,14 @@ const fileUploadSizeLimit = 200 * 1024 * 1024;
 ```
 
 > ⚠️ 重新安装/升级 playwright 后需重新修改。
+
+### github限制
+```bash
+打开vpn
+
+ping
+140.82.113.3 github.com
+151.101.1.194 github.global.ssl.fastly.net
+
+sudo vim /etc/hosts，将上述的内容粘贴进去
+```

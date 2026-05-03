@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     STICKER_DIR: str = str(DATA_DIR / "stickers")
     DEFAULT_INSERT_AT: float = 10.0
     DEFAULT_INSERT_RANGE: str = "10-20"     # insert_at 默认随机范围
-    DEFAULT_MAX_DURATION: float = 150       # 合成最大时长（秒），0=不限
+    DEFAULT_MAX_DURATION: float = 180       # 合成最大时长（秒），0=不限
     VIDEO_CODEC: str = "libx264"
     AUDIO_CODEC: str = "aac"
 

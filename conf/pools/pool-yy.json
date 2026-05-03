@@ -2,7 +2,7 @@
   "id": "pool-yy",
   "name": "挥雷",
   "categories": {
-    "三角洲": { "guide": "data/guides/三角洲/三角洲_中国.mp4", "insert_at": 12, "max_duration": 180 },
+    "三角洲": { "guide": "data/guides/三角洲/三角洲行动_中国.mp4", "insert_at": 12, "max_duration": 180 },
     "蛋仔派对": { "guide": "data/guides/蛋仔派对/蛋仔派对.mp4", "insert_at": 12, "max_duration": 180 },
     "火影忍者": { "guide": "data/guides/火影忍者/火影手游_中国.mp4", "insert_at": 12, "max_duration": 180 },
     "暗区突围": { "guide": "data/guides/暗区突围/暗区6.mp4", "insert_at": 12, "max_duration": 180 },
