@@ -15,8 +15,8 @@ guide_by_category:
   火影忍者: data/guides/火影忍者/guide.mp4
 
 # 合成参数
-insert_at: 10                       # 插入位置（秒）
-# insert_range: "10-15"             # 自适应插入：在范围内找关键帧（优先于 insert_at）
+#insert_at: 10                       # 插入位置（秒）
+insert_range: "10-15"             # 自适应插入：在范围内找关键帧（优先于 insert_at）
 # guide_duration: 5                 # 可选：只截取引导视频前 N 秒（默认使用完整引导视频）
 
 # 去重参数

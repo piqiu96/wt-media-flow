@@ -1,0 +1,4 @@
+interface:
+  display_name: "Video Claw"
+  short_description: "自动编排游戏运营视频采集下载合成计划创建打包完整流程"
+  default_prompt: "按指定游戏和视频数量执行运营视频采集、筛选、下载、合成、计划创建和打包流程。"
