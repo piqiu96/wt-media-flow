@@ -345,6 +345,20 @@ class VideoTaskRepository:
             VideoTask.video_id == video_id
         ).order_by(VideoTask.id.desc()).first()
 
+    def get_latest_non_failed_by_source_vid(self, source_vid: str) -> Optional[VideoTask]:
+        """按 source_vid 查询最新的非失败任务，用于合成前去重。"""
+        if not source_vid:
+            return None
+        return (
+            self.db.query(VideoTask)
+            .filter(
+                VideoTask.source_vid == source_vid,
+                VideoTask.status != VideoTaskStatusEnum.FAILED,
+            )
+            .order_by(VideoTask.id.desc())
+            .first()
+        )
+
     def get_all_by_video_id(self, video_id: int) -> List[VideoTask]:
         return self.db.query(VideoTask).filter(
             VideoTask.video_id == video_id

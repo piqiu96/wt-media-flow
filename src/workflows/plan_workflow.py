@@ -67,7 +67,12 @@ class PlanWorkflow:
                     continue
                 vt_pool = list(available)
                 random.shuffle(vt_pool)
+                used_source_vids: set[str] = set()
                 for vt in vt_pool:
+                    source_vid = (vt.source_vid or "").strip()
+                    if source_vid in used_source_vids:
+                        logger.info(f"跳过本轮重复素材: platform={plat} source_vid={source_vid}")
+                        continue
                     vt_cat = (vt.category or "").strip()
                     candidates = [
                         a for a in plat_accs
@@ -80,6 +85,8 @@ class PlanWorkflow:
                         continue
                     acc = random.choice(candidates)
                     assignments.append((acc, vt))
+                    if source_vid:
+                        used_source_vids.add(source_vid)
                     acc_quota[acc.id] -= 1
 
             if not assignments:

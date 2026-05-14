@@ -59,6 +59,19 @@ class CompositeWorkflow:
                 vt.guide_path = guide
                 db.commit()
             else:
+                existing_task = vt_repo.get_latest_non_failed_by_source_vid(video.source_vid)
+                if existing_task:
+                    status = existing_task.status.value if hasattr(existing_task.status, "value") else existing_task.status
+                    msg = (f"vid={vid} 已存在非失败合成任务 "
+                           f"task_id={existing_task.id}, status={status}，跳过")
+                    logger.info(msg)
+                    return {
+                        "success": True,
+                        "skipped": True,
+                        "message": msg,
+                        "task_id": existing_task.id,
+                        "status": status,
+                    }
                 vt = vt_repo.create(
                     video_id=video.id,
                     title=video.title,

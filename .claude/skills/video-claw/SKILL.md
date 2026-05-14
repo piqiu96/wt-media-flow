@@ -62,7 +62,6 @@ name: video-claw
 ```bash
 .venv/bin/python3 --version
 .venv/bin/python3 src/main.py setup --check
-.venv/bin/python3 src/main.py init
 ```
 
 本项目预期 Python 为 `3.14.x`。
