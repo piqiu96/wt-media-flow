@@ -1,5 +1,5 @@
 interface:
-  display_name: "热点关键词复盘"
+  display_name: "hot-review"
   short_description: "分析游戏热点并维护采集关键词"
   default_prompt: "Use $hot-review to analyze recent downloaded videos and current game hotspots, then recommend claw.yaml keyword updates for my review."
 

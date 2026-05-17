@@ -95,7 +95,7 @@ app/web                           → infra/browser (bit_api)
 
 | 目录 | 说明 |
 |------|------|
-| `data/publisher.db` | SQLite 数据库 |
+| `store/publisher.db` | SQLite 数据库 |
 | `data/downloads/` | 下载的视频文件（按 date/category 分目录）|
 | `data/guides/{category}/guide.mp4` | 引导视频（按品类分目录）|
 | `data/output/` | 合成输出 |

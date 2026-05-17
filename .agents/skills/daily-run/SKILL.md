@@ -39,7 +39,7 @@ description: 每日视频采集→合成→发布完整流程（三角洲/暗区
 ```bash
 .venv/bin/python3 -c "
 import sqlite3, datetime
-conn = sqlite3.connect('data/publisher.db')
+conn = sqlite3.connect('store/publisher.db')
 cutoff = (datetime.datetime.utcnow() - datetime.timedelta(days=3)).strftime('%Y-%m-%d %H:%M:%S')
 for cat in ['三角洲', '暗区突围']:
     rows = conn.execute(

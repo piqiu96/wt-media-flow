@@ -239,7 +239,7 @@ src/
 
 | 目录/文件 | 说明 |
 |-----------|------|
-| `data/publisher.db` | SQLite 数据库 |
+| `store/publisher.db` | SQLite 数据库 |
 | `data/downloads/` | 下载的原始视频（按日期/品类分目录）|
 | `data/guides/{category}/guide.mp4` | 引导视频（按品类分目录）|
 | `data/output/` | 合成输出视频 |
