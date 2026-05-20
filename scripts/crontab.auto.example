@@ -1,0 +1,22 @@
+# wt-media-flow 自动任务 crontab 示例
+# 安装方式：
+#   crontab scripts/crontab.auto.example
+#
+# 查看：
+#   crontab -l
+#
+# 说明：
+# - crontab 只调用 scripts/auto_run.py 总控
+# - 总控内部直接调用 src/main.py claw / src/main.py composite
+# - 同类任务上一轮没结束时，本轮自动跳过，避免下载限流时叠加
+# - 采集每 2 小时跑一次：整点
+# - 合成每 2 小时跑一次：半点，默认本轮目标 50 条，workers=4
+# - 日志追加到 log/auto_claw.log / log/auto_composite.log
+
+SHELL=/bin/zsh
+PATH=/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
+
+WT_MEDIA_FLOW=/Users/aqiuye/Develop/workspace/wt-media-flow
+
+0 */2 * * * cd "$WT_MEDIA_FLOW" && mkdir -p log && "$WT_MEDIA_FLOW/.venv/bin/python3" "$WT_MEDIA_FLOW/scripts/auto_run.py" claw --max-games 2 >> "$WT_MEDIA_FLOW/log/auto_claw.log" 2>&1
+30 */2 * * * cd "$WT_MEDIA_FLOW" && mkdir -p log && "$WT_MEDIA_FLOW/.venv/bin/python3" "$WT_MEDIA_FLOW/scripts/auto_run.py" composite --limit 50 --workers 4 >> "$WT_MEDIA_FLOW/log/auto_composite.log" 2>&1
