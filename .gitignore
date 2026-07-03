@@ -26,6 +26,8 @@ myenv/
 *.log
 log/
 data/
+store/locks/
+store/*.sql
 
 # 配置文件
 conf/.env

@@ -1,5 +1,5 @@
 # 下载任务配置示例
-# 使用方式: python main.py cmd download --config conf/download.yaml
+# 使用方式: .venv/bin/python3 src/main.py download --config conf/download.yaml
 
 # 下载源: douyin / bilibili
 source: douyin

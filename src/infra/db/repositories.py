@@ -271,39 +271,47 @@ class VideoRepository:
         self.db.commit()
 
     def get_unprocessed_vids(self, category: str, limit: int = 200,
-                              max_age_days: int = 5) -> list[str]:
-        """取已下载但未合成（或合成失败）的原始素材 source_vid 列表
+                              max_age_days: int = 5,
+                              target_platform: str = None) -> list[str]:
+        """取已下载但未合成（或合成失败）的原始素材 source_vid 列表。
+
+        指定 target_platform 时，同一素材允许为不同平台分别合成；仅排除
+        同平台已有非失败合成任务或同平台计划引用的素材。
 
         排除条件：
         1. 已有非 FAILED 状态的 video_task（合成中/合成完成）
-        2. 已进入过任意计划的 video_task 引用的 video（任意状态均算）
+        2. 已进入过计划的 video_task 引用的 video（任意状态均算）
         3. 超过 max_age_days 天的老视频
         """
         from sqlalchemy import or_, and_
-        composited_video_ids = (
-            self.db.query(VideoTask.video_id)
-            .filter(VideoTask.status != VideoTaskStatusEnum.FAILED)
-            .subquery()
+        composited_video_ids = self.db.query(VideoTask.video_id).filter(
+            VideoTask.status != VideoTaskStatusEnum.FAILED
         )
-        in_plan_video_ids = (
-            self.db.query(VideoTask.video_id)
-            .join(PlanItem, PlanItem.video_task_id == VideoTask.id)
-            .subquery()
+        in_plan_video_ids = self.db.query(VideoTask.video_id).join(
+            PlanItem, PlanItem.video_task_id == VideoTask.id
         )
+        if target_platform:
+            composited_video_ids = composited_video_ids.filter(
+                VideoTask.target_platform == target_platform
+            )
+            in_plan_video_ids = in_plan_video_ids.filter(
+                PlanItem.platform == target_platform
+            )
         cutoff = datetime.utcnow() - timedelta(days=max_age_days)
         rows = (
             self.db.query(Video.source_vid)
             .filter(
                 Video.category == category,
                 Video.claw_status == ClawStatusEnum.DONE,
+                Video.deleted.is_(False),
                 Video.path.isnot(None),
                 Video.path != "",
                 or_(
                     Video.published_at >= cutoff,
                     and_(Video.published_at.is_(None), Video.created_at >= cutoff),
                 ),
-                Video.id.notin_(composited_video_ids),
-                Video.id.notin_(in_plan_video_ids),
+                ~Video.id.in_(composited_video_ids),
+                ~Video.id.in_(in_plan_video_ids),
             )
             .order_by((Video.like_count + Video.collect_count).desc())
             .limit(limit)
@@ -319,7 +327,8 @@ class VideoTaskRepository:
     def create(self, video_id: int, title: str = None, tags: str = None,
                cover_url: str = None, video_url: str = None,
                guide_path: str = None, category: str = "",
-               source_vid: str = None, pool: str = None) -> VideoTask:
+               source_vid: str = None, pool: str = None,
+               target_platform: str = None) -> VideoTask:
         task = VideoTask(
             video_id=video_id,
             title=title,
@@ -330,6 +339,7 @@ class VideoTaskRepository:
             category=category or "",
             source_vid=source_vid,
             pool=pool,
+            target_platform=target_platform,
             status=VideoTaskStatusEnum.PENDING,
         )
         self.db.add(task)
@@ -345,19 +355,22 @@ class VideoTaskRepository:
             VideoTask.video_id == video_id
         ).order_by(VideoTask.id.desc()).first()
 
-    def get_latest_non_failed_by_source_vid(self, source_vid: str) -> Optional[VideoTask]:
-        """按 source_vid 查询最新的非失败任务，用于合成前去重。"""
+    def get_latest_non_failed_by_source_vid(self, source_vid: str,
+                                            target_platform: str = None) -> Optional[VideoTask]:
+        """按 source_vid 查询最新的非失败任务，用于合成前去重。
+
+        指定 target_platform 时，只在同平台内去重，允许同素材为不同平台
+        生成不同引导视频版本。
+        """
         if not source_vid:
             return None
-        return (
-            self.db.query(VideoTask)
-            .filter(
-                VideoTask.source_vid == source_vid,
-                VideoTask.status != VideoTaskStatusEnum.FAILED,
-            )
-            .order_by(VideoTask.id.desc())
-            .first()
+        q = self.db.query(VideoTask).filter(
+            VideoTask.source_vid == source_vid,
+            VideoTask.status != VideoTaskStatusEnum.FAILED,
         )
+        if target_platform:
+            q = q.filter(VideoTask.target_platform == target_platform)
+        return q.order_by(VideoTask.id.desc()).first()
 
     def get_all_by_video_id(self, video_id: int) -> List[VideoTask]:
         return self.db.query(VideoTask).filter(
@@ -596,6 +609,8 @@ class VideoTaskRepository:
             .filter(
                 VideoTask.status == VideoTaskStatusEnum.COMPOSITED,
                 VideoTask.source_vid.isnot(None),
+                or_(VideoTask.target_platform.is_(None),
+                    VideoTask.target_platform == platform),
                 ~VideoTask.source_vid.in_(already_on_platform_svids),
                 or_(Video.published_at.is_(None),
                     Video.published_at >= cutoff),
@@ -640,6 +655,8 @@ class VideoTaskRepository:
                 VideoTask.status == VideoTaskStatusEnum.COMPOSITED,
                 VideoTask.pool == pool,
                 VideoTask.source_vid.isnot(None),
+                or_(VideoTask.target_platform.is_(None),
+                    VideoTask.target_platform == platform),
                 ~VideoTask.source_vid.in_(already_on_platform_svids),
                 or_(Video.published_at.is_(None),
                     Video.published_at >= cutoff),

@@ -44,6 +44,8 @@ class CompositeCommand(BaseCommand):
                             help="批量合成：自动从数据库取该品类所有未合成素材")
         parser.add_argument("--limit", type=int, default=200,
                             help="--batch 模式最多合成条数，默认 200")
+        parser.add_argument("--max-age-days", type=int, default=5,
+                            help="--batch 模式素材最大天数，默认 5")
 
     def _resolve_insert_at(self, args, config) -> tuple[float, tuple | None]:
         insert_range_str = self.merge_args(args, config, "insert_range") or config.get("insert_range")
@@ -85,8 +87,6 @@ class CompositeCommand(BaseCommand):
 
         category_for_guide = getattr(args, "category", None) or config.get("category")
         platform = getattr(args, "platform", None) or config.get("platform")
-        guide_by_cat = config.get("guide_by_category", {})
-        guide_by_platform = config.get("guide_by_platform", {})
         pool_key = getattr(args, "pool", None) or config.get("pool")
         pool_cat_cfg = {}
         if pool_key and category_for_guide:
@@ -107,16 +107,9 @@ class CompositeCommand(BaseCommand):
         elif pool_key and category_for_guide:
             # 优先从 pool JSON 配置读取平台专属引导视频路径，未配置则回退到旧 guide 字段。
             from conf.pool_config import get_pool_guide
-            pool_guide = get_pool_guide(pool_key, category_for_guide, platform=platform)
-            platform_guide = (guide_by_platform.get(platform, {})
-                              .get(category_for_guide)) if platform else None
-            guide = pool_guide or platform_guide or guide_by_cat.get(category_for_guide) or config.get("guide_video")
-        elif category_for_guide:
-            platform_guide = (guide_by_platform.get(platform, {})
-                              .get(category_for_guide)) if platform else None
-            guide = platform_guide or guide_by_cat.get(category_for_guide) or config.get("guide_video")
+            guide = get_pool_guide(pool_key, category_for_guide, platform=platform)
         else:
-            guide = config.get("guide_video")
+            guide = None
 
         guide_duration = float(self.merge_args(args, effective_config, "guide_duration") or effective_config.get("guide_duration", 0))
         output_dir = self.merge_args(args, effective_config, "output") or effective_config.get("output_dir", settings.OUTPUT_DIR)
@@ -153,7 +146,10 @@ class CompositeCommand(BaseCommand):
             db = SessionLocal()
             try:
                 batch_vids = VideoRepository(db).get_unprocessed_vids(
-                    category=category_for_guide, limit=getattr(args, "limit", 200)
+                    category=category_for_guide,
+                    limit=getattr(args, "limit", 200),
+                    max_age_days=getattr(args, "max_age_days", 5),
+                    target_platform=platform,
                 )
             finally:
                 db.close()
@@ -165,6 +161,7 @@ class CompositeCommand(BaseCommand):
                 dedup, insert_range, max_duration,
                 workers=workers, auto_publish=auto_publish, account_id=account_id,
                 watermark_cfg=watermark_cfg, pool=pool_key,
+                target_platform=platform,
             )
 
         # --vids
@@ -174,6 +171,7 @@ class CompositeCommand(BaseCommand):
                 dedup, insert_range, max_duration,
                 workers=workers, auto_publish=auto_publish, account_id=account_id,
                 watermark_cfg=watermark_cfg, pool=pool_key,
+                target_platform=platform,
             )
 
         # --vid
@@ -183,6 +181,7 @@ class CompositeCommand(BaseCommand):
                 dedup, insert_range, max_duration,
                 auto_publish=auto_publish, account_id=account_id,
                 watermark_cfg=watermark_cfg, pool=pool_key,
+                target_platform=platform,
             )
 
         # --input

@@ -1,8 +1,4 @@
-"""
-PlanWorkflow — 计划管理流程编排（create / list / reset-failed / check）
-
-从 cmd/plan.py 的 _create / _list / _reset_failed / _check 搬迁。
-"""
+"""PlanWorkflow — 计划管理流程编排（create / list / reset-failed / check）。"""
 import random
 from datetime import date as date_type
 

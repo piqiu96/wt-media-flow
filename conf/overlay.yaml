@@ -1,7 +1,7 @@
 # 尾部动画素材采集关键词
-# 使用方式: python src/main.py overlay run --category dance --config conf/overlay.yaml
-#           python src/main.py overlay run --category anime --config conf/overlay.yaml
-#           python src/main.py overlay run --category live --config conf/overlay.yaml
+# 使用方式: .venv/bin/python3 src/main.py overlay run --category dance --config conf/overlay.yaml
+#           .venv/bin/python3 src/main.py overlay run --category anime --config conf/overlay.yaml
+#           .venv/bin/python3 src/main.py overlay run --category live --config conf/overlay.yaml
 
 overlay_keywords:
   # 颜值舞蹈：高颜值擦边热门女生舞蹈

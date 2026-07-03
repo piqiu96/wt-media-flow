@@ -1,8 +1,4 @@
-"""
-PlanService — 计划管理业务逻辑（create / list / reset-failed / check）
-
-从 cmd/plan.py 的 _create / _list / _reset_failed / _check 提取。
-"""
+"""PlanService — 计划管理业务逻辑（create / list / reset-failed / check）。"""
 import random
 from datetime import date as date_type
 

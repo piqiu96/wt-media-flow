@@ -2,7 +2,7 @@
 """
 矩阵视频自动发布系统
 
-支持多平台（哔哩哔哩/百家号/小红书）视频自动发布
+支持哔哩哔哩和百家号视频自动发布，小红书适配器待实现
 """
 import argparse
 import sys
@@ -23,19 +23,17 @@ from app.cli import get_all_commands, get_command
 
 def main():
     parser = argparse.ArgumentParser(
-        description="矩阵视频自动发布系统 - 支持哔哩哔哩/百家号/小红书多平台发布",
+        description="矩阵视频自动发布系统 - 支持哔哩哔哩/百家号发布，小红书待实现",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 使用示例:
-  环境初始化:   python src/main.py setup
-  下载视频:     python src/main.py download --source douyin --url "https://..."
-  合成视频:     python src/main.py composite --input video.mp4 --guide guide.mp4 --insert-at 10
-  全流程:       python src/main.py pipeline --config conf/pipeline.yaml
-  初始化数据库: python src/main.py init
-  账号管理:     python src/main.py account add --platform bilibili --username u1 --profile-id xxx
-  视频管理:     python src/main.py video add --path /path/to/video.mp4 --title "标题"
-  生成计划:     python src/main.py plan --group group_1 --count 100
-  运行调度:     python src/main.py run
+  环境检查:     .venv/bin/python3 src/main.py setup --check
+  采集素材:     .venv/bin/python3 src/main.py claw --category 三角洲 --config conf/claw.yaml
+  合成视频:     .venv/bin/python3 src/main.py composite --batch --category 三角洲 --platform baijiahao --pool pool-yy --config conf/composite.yaml
+  初始化数据库: .venv/bin/python3 src/main.py init
+  账号管理:     .venv/bin/python3 src/main.py account add --platform bilibili --username u1 --browser-id 1
+  生成计划:     .venv/bin/python3 src/main.py plan create --user-id 1 --dry-run
+  执行计划:     .venv/bin/python3 src/main.py plan run --plan-id 1 --account-id 1
         """
     )
     subparsers = parser.add_subparsers(dest="command", help="可用命令")

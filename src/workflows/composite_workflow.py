@@ -1,10 +1,4 @@
-"""
-CompositeWorkflow — 视频合成流程编排
-
-从 cmd/composite.py 搬迁核心合成逻辑。
-composite 命令逻辑比较自洽（不像 plan 那样混杂浏览器管理），
-这里主要是 _composite_by_vid / _composite_by_vids / _recomposite_recent 三个方法。
-"""
+"""CompositeWorkflow — 视频合成流程编排。"""
 import os
 import random
 import re
@@ -28,7 +22,8 @@ class CompositeWorkflow:
                          account_id: int = None,
                          existing_task_id: int = None,
                          watermark_cfg: dict = None,
-                         pool: str = None) -> dict:
+                         pool: str = None,
+                         target_platform: str = None) -> dict:
         """通过 source_vid 从素材库查询，下载远程视频后合成"""
         from infra.db.database import SessionLocal
         from infra.db.repositories import VideoRepository, VideoTaskRepository
@@ -59,7 +54,9 @@ class CompositeWorkflow:
                 vt.guide_path = guide
                 db.commit()
             else:
-                existing_task = vt_repo.get_latest_non_failed_by_source_vid(video.source_vid)
+                existing_task = vt_repo.get_latest_non_failed_by_source_vid(
+                    video.source_vid, target_platform=target_platform
+                )
                 if existing_task:
                     status = existing_task.status.value if hasattr(existing_task.status, "value") else existing_task.status
                     msg = (f"vid={vid} 已存在非失败合成任务 "
@@ -82,6 +79,7 @@ class CompositeWorkflow:
                     category=video.category or "",
                     source_vid=video.source_vid,
                     pool=pool,
+                    target_platform=target_platform,
                 )
             vt_repo.start_composite(vt.id)
 
@@ -165,7 +163,8 @@ class CompositeWorkflow:
                           auto_publish: bool = False,
                           account_id: int = None,
                           watermark_cfg: dict = None,
-                          pool: str = None) -> dict:
+                          pool: str = None,
+                          target_platform: str = None) -> dict:
         """批量通过 source_vid 下载并合成"""
         if not guide:
             return {"success": False, "message": "请指定 --guide（引导视频路径）"}
@@ -189,6 +188,7 @@ class CompositeWorkflow:
                 dedup, insert_range, max_duration,
                 auto_publish=auto_publish, account_id=account_id,
                 watermark_cfg=watermark_cfg, pool=pool,
+                target_platform=target_platform,
             )
             result["vid"] = vid
             status = "成功" if result.get("success") else "失败"

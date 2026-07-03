@@ -202,6 +202,103 @@ class DedupeTestCase(unittest.TestCase):
         finally:
             db.close()
 
+    def test_unprocessed_vids_are_scoped_by_target_platform(self):
+        db = self.SessionLocal()
+        try:
+            video = self._video(db, source_vid="platform-scope", category="三角洲", path="/tmp/in.mp4")
+            db.add(VideoTask(
+                video_id=video.id,
+                source_vid=video.source_vid,
+                category=video.category,
+                status=VideoTaskStatusEnum.COMPOSITED,
+                target_platform="baijiahao",
+            ))
+            db.commit()
+
+            repo = VideoRepository(db)
+            baijiahao_rows = repo.get_unprocessed_vids(
+                category="三角洲", target_platform="baijiahao"
+            )
+            bilibili_rows = repo.get_unprocessed_vids(
+                category="三角洲", target_platform="bilibili"
+            )
+        finally:
+            db.close()
+
+        self.assertNotIn("platform-scope", baijiahao_rows)
+        self.assertIn("platform-scope", bilibili_rows)
+
+    def test_unprocessed_vids_exclude_logically_deleted_videos(self):
+        db = self.SessionLocal()
+        try:
+            active_vid = "active-video"
+            deleted_vid = "deleted-video"
+            self._video(
+                db, source_vid=active_vid, category="火影忍者",
+                path="/tmp/active.mp4",
+            )
+            deleted = self._video(
+                db, source_vid=deleted_vid, category="火影忍者",
+                path="/tmp/deleted.mp4",
+            )
+            deleted.deleted = True
+            db.commit()
+
+            rows = VideoRepository(db).get_unprocessed_vids(
+                category="火影忍者",
+                target_platform="bilibili",
+                max_age_days=365,
+            )
+        finally:
+            db.close()
+
+        self.assertIn(active_vid, rows)
+        self.assertNotIn(deleted_vid, rows)
+
+    def test_plan_candidates_respect_target_platform(self):
+        db = self.SessionLocal()
+        try:
+            bjh_video = self._video(db, source_vid="bjh-only")
+            bili_video = self._video(db, source_vid="bili-only")
+            neutral_video = self._video(db, source_vid="neutral")
+            db.add_all([
+                VideoTask(
+                    video_id=bjh_video.id,
+                    source_vid=bjh_video.source_vid,
+                    status=VideoTaskStatusEnum.COMPOSITED,
+                    target_platform="baijiahao",
+                ),
+                VideoTask(
+                    video_id=bili_video.id,
+                    source_vid=bili_video.source_vid,
+                    status=VideoTaskStatusEnum.COMPOSITED,
+                    target_platform="bilibili",
+                ),
+                VideoTask(
+                    video_id=neutral_video.id,
+                    source_vid=neutral_video.source_vid,
+                    status=VideoTaskStatusEnum.COMPOSITED,
+                ),
+            ])
+            db.commit()
+
+            repo = VideoTaskRepository(db)
+            baijiahao_vids = {
+                task.source_vid for task in repo.get_composited_for_platform("baijiahao")
+            }
+            bilibili_vids = {
+                task.source_vid for task in repo.get_composited_for_platform("bilibili")
+            }
+        finally:
+            db.close()
+
+        self.assertIn("bjh-only", baijiahao_vids)
+        self.assertNotIn("bili-only", baijiahao_vids)
+        self.assertIn("bili-only", bilibili_vids)
+        self.assertNotIn("bjh-only", bilibili_vids)
+        self.assertIn("neutral", baijiahao_vids)
+        self.assertIn("neutral", bilibili_vids)
+
     def test_plan_create_dedupes_same_platform_but_allows_cross_platform(self):
         from workflows.plan_workflow import PlanWorkflow
 

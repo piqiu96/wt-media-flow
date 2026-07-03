@@ -1,8 +1,4 @@
-"""
-BrowserSessionService — 统一管理 BitBrowser + Playwright 生命周期
-
-从 cmd/plan.py 和 cmd/comment.py 中提取的公共浏览器会话管理逻辑。
-"""
+"""BrowserSessionService — 统一管理 BitBrowser + Playwright 生命周期。"""
 from dataclasses import dataclass, field
 from typing import Optional
 

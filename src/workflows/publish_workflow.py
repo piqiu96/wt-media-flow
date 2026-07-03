@@ -1,9 +1,4 @@
-"""
-PublishWorkflow — 单账号发布流程编排
-
-从 cmd/plan.py _run() (L263-571) 搬迁。
-两阶段：串行填充 → 逐 Tab 人工确认 + 回链。
-"""
+"""单账号发布流程：串行填充后逐 Tab 人工确认并回链。"""
 import os
 import time
 import random

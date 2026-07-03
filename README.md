@@ -2,6 +2,7 @@
 
 集成素材采集、视频合成加工、多平台自动发布的全流程工具。
 支持从抖音采集素材入库，自动下载合成带引导视频的去重内容，通过比特浏览器实现多账号矩阵发布。
+当前支持百家号和 B 站发布；小红书仅保留适配器占位，尚未实现。
 
 **技术栈**：Python 3.14 · SQLite(SQLAlchemy) · FFmpeg · Playwright · FastAPI · 比特浏览器 CDP
 
@@ -70,22 +71,22 @@ source .venv/bin/activate
 **搜索参数默认值**（可通过 conf/claw.yaml 覆盖）：
 - `publish_time=1`（最近一天）
 - `filter_duration="1-5"`（1-5 分钟视频）
-- `sort_type=2`（最新排序）
+- `sort_type=1`（点赞排序）
 
 ### 视频合成（composite）
 
 ```bash
 # 通过素材库 vid 合成（推荐，自动下载 + 合成）
-.venv/bin/python3 src/main.py composite --vid 7627089837556988532 --config conf/composite.yaml --category 三角洲
+.venv/bin/python3 src/main.py composite --vid 7627089837556988532 --config conf/composite.yaml --category 三角洲 --platform baijiahao --pool pool-yy
 
 # 批量 vid 合成
-.venv/bin/python3 src/main.py composite --vids <vid1> <vid2> --config conf/composite.yaml --category 三角洲
+.venv/bin/python3 src/main.py composite --vids <vid1> <vid2> --config conf/composite.yaml --category 三角洲 --platform bilibili --pool pool-hz
 
 # 按配置批量重合成
-.venv/bin/python3 src/main.py composite --recomposite --config conf/composite.yaml --category 三角洲
+.venv/bin/python3 src/main.py composite --recomposite 1 --config conf/composite.yaml --category 三角洲 --pool pool-yy
 
 # 本地文件直接合成（调试用）
-.venv/bin/python3 src/main.py composite --input video.mp4 --guide data/guides/三角洲/guide.mp4
+.venv/bin/python3 src/main.py composite --input video.mp4 --guide data/guides/三角洲/三角洲行动_中国.mp4
 ```
 
 **合成流程**：`原视频前段 + 引导视频 + 原视频后段 + 尾部动画`
@@ -94,7 +95,7 @@ source .venv/bin/activate
 |------|--------|
 | 截尾去重 | 随机剪去末尾 3-5s |
 | 引导插入点 | 随机 10-20s 范围 |
-| 时长控制 | ≤ 150s |
+| 时长控制 | ≤ 180s |
 | 贴纸叠加 | 2-5 张半透明 PNG |
 | 视频去重 | 亮度/对比度/裁切/速度微调 + 尾部动画 |
 
@@ -102,10 +103,10 @@ source .venv/bin/activate
 
 ```bash
 # 创建计划（dry-run 预览）
-.venv/bin/python3 src/main.py plan create --dry-run
+.venv/bin/python3 src/main.py plan create --user-id 1 --dry-run
 
 # 正式创建
-.venv/bin/python3 src/main.py plan create
+.venv/bin/python3 src/main.py plan create --user-id 1
 
 # 执行计划（逐账号发布）
 .venv/bin/python3 src/main.py plan run --plan-id 1 --account-id 1
@@ -156,10 +157,10 @@ source .venv/bin/activate
 ### 清理 & 工具
 
 ```bash
-.venv/bin/python3 src/main.py cleanup                 # 清理过期/失败的合成任务
+.venv/bin/python3 src/main.py cleanup --dry-run       # 预览过期媒体清理
 .venv/bin/python3 src/main.py setup --check           # 检查工具（ffmpeg/yt-dlp）状态
 .venv/bin/python3 src/main.py init                    # 初始化/迁移数据库
-.venv/bin/python3 src/main.py serve --port 8000       # 启动 Web API（FastAPI，文档 /docs）
+.venv/bin/python3 src/main.py diagnose dedup          # 只读检查重复和状态异常
 ```
 
 ### 直接发布（publish，调试用）
@@ -167,6 +168,21 @@ source .venv/bin/activate
 ```bash
 # 对指定账号直接发布 video_tasks 中的合成任务（调试用，日常走 plan run）
 .venv/bin/python3 src/main.py publish --account-id 1 --limit 3
+```
+
+### 辅助能力
+
+以下命令不属于每日主流程：
+
+```bash
+# 手动发布兜底包
+.venv/bin/python3 src/main.py pack --plan-id 1
+
+# 尾部动画素材采集与切片
+.venv/bin/python3 src/main.py overlay run --category dance --config conf/overlay.yaml
+
+# 实验性 Web API（FastAPI 文档位于 /docs）
+.venv/bin/python3 src/main.py serve --port 8000
 ```
 
 ---
@@ -181,12 +197,12 @@ source .venv/bin/activate
 .venv/bin/python3 src/main.py claw --category 暗区突围 --config conf/claw.yaml
 
 # 阶段二：合成
-.venv/bin/python3 src/main.py composite --recomposite --config conf/composite.yaml --category 三角洲
-.venv/bin/python3 src/main.py composite --recomposite --config conf/composite.yaml --category 暗区突围
+.venv/bin/python3 src/main.py composite --recomposite 1 --config conf/composite.yaml --category 三角洲
+.venv/bin/python3 src/main.py composite --recomposite 1 --config conf/composite.yaml --category 暗区突围
 
 # 阶段三：创建发布计划
-.venv/bin/python3 src/main.py plan create --dry-run   # 预览
-.venv/bin/python3 src/main.py plan create             # 正式创建
+.venv/bin/python3 src/main.py plan create --user-id <USER_ID> --dry-run
+.venv/bin/python3 src/main.py plan create --user-id <USER_ID>
 
 # 阶段四：逐账号发布（account-id 1-10）
 .venv/bin/python3 src/main.py plan run --plan-id <N> --account-id 1
@@ -202,8 +218,8 @@ src/
 ├── main.py                  # 入口，argparse 分发
 ├── conf/settings.py         # 全局配置（pydantic-settings）
 ├── app/
-│   ├── cli/                 # CLI 命令层（13 个命令，ABC + @register_command）
-│   └── web/api.py           # FastAPI Web API
+│   ├── cli/                 # CLI 命令层（15 个命令，ABC + @register_command）
+│   └── web/api.py           # 实验性 FastAPI Web API
 ├── workflows/               # 流程编排（跨 service/infra 的业务流程）
 │   ├── plan_workflow.py
 │   ├── publish_workflow.py
@@ -241,7 +257,7 @@ src/
 |-----------|------|
 | `store/publisher.db` | SQLite 数据库 |
 | `data/downloads/` | 下载的原始视频（按日期/品类分目录）|
-| `data/guides/{category}/guide.mp4` | 引导视频（按品类分目录）|
+| `data/guides/{category}/` | 引导视频（按品类分目录，平台路径在 `conf/pools/*.json` 或 `conf/composite.yaml` 配置）|
 | `data/output/` | 合成输出视频 |
 | `data/stickers/` | PNG 贴纸素材 |
 | `data/overlays/` | 尾部动画素材 |
@@ -266,11 +282,11 @@ src/
 |------|------|
 | `conf/claw.yaml` | 采集配置（品类关键词/搜索参数）|
 | `conf/composite.yaml` | 合成配置（引导视频路径/插入位置/去重）|
-| `conf/categories.yaml` | 品类列表（三角洲/暗区突围/蛋仔派对）|
+| `conf/categories.yaml` | 已注册的游戏品类列表（当前 15 项）|
 | `conf/comment_templates.yaml` | 评论模板 |
 | `src/conf/settings.py` | 全局默认配置（路径/超时/编码参数）|
 
-**配置优先级**：CLI 参数 > YAML 配置 > settings.py 默认值
+**配置优先级**：CLI 参数 > pool 品类配置 > YAML 配置 > settings.py 默认值
 
 ---
 

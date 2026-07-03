@@ -1,8 +1,4 @@
-"""
-CommentWorkflow — 评论流程编排
-
-从 cmd/comment.py 搬迁 single / batch / fire 逻辑。
-"""
+"""CommentWorkflow — 评论流程编排。"""
 import random
 import yaml
 from pathlib import Path

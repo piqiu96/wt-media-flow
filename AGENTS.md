@@ -2,7 +2,8 @@
 
 ## 项目
 
-wt-media-flow — 视频素材采集 + 合成 + 多平台发布系统。
+wt-media-flow — 视频素材采集 + 合成 + 多平台发布系统。当前支持百家号和
+B 站发布；小红书仅保留占位适配器。
 
 ## 环境
 
@@ -78,7 +79,7 @@ app/web                           → infra/browser (bit_api)
 | `src/main.py` | 入口，argparse 分发 |
 | `src/conf/settings.py` | 所有配置（pydantic-settings） |
 | `src/app/cli/__init__.py` | 命令框架 + 注册表（ABC + @register_command） |
-| `src/app/web/api.py` | FastAPI Web API |
+| `src/app/web/api.py` | 实验性 FastAPI Web API |
 | `src/workflows/claw_workflow.py` | 采集工作流（DouyinApi + 入库 + 下载）|
 | `src/workflows/plan_workflow.py` | 计划工作流（创建/运行/检查）|
 | `src/workflows/publish_workflow.py` | 发布工作流（BitBrowser + Playwright）|
@@ -128,7 +129,7 @@ app/web                           → infra/browser (bit_api)
 - `publish_time=1`（最近一天）
 - `filter_duration="1-5"`（1-5 分钟视频）
 - `count` 最低 10 条（API 限制）
-- ⚠️ `claw.yaml` 里 `sort_type=2`，带 `--config` 时 CLI 参数无法覆盖，单关键词采集用裸命令不加 `--config`
+- ⚠️ `claw.yaml` 里 `sort_type=1`（点赞排序），带 `--config` 时 CLI 参数无法覆盖，单关键词采集用裸命令不加 `--config`
 
 ## 已知未完成项
 
@@ -136,5 +137,7 @@ app/web                           → infra/browser (bit_api)
 |------|------|
 | B站分区自动选择 | `bilibili/publisher.py` 中已跳过，需手动确认 |
 | 小红书平台 | `platforms/xiaohongshu/` 枚举已定义，发布逻辑未实现 |
+| Web API | 实验性入口，日常操作以 CLI 为准 |
+| 评论任务 | 代码已实现，尚缺稳定运营数据验证 |
 | `publish` 命令 | `app/cli/publish.py` 是调试用直接发布命令，日常走 `plan run` |
 | print → logger 迁移 | workflows/ 和 infra/ 层大量使用 print，待统一 |

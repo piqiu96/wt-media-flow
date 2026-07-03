@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import fcntl
+import json
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -41,6 +42,9 @@ def parse_args() -> argparse.Namespace:
     comp.add_argument("--workers", type=int, default=4, help="合成并发，默认 4")
     comp.add_argument("--composite-config", default="conf/composite.yaml", help="合成配置")
     comp.add_argument("--max-age-days", type=int, default=5, help="合成素材最大天数，默认 5")
+    comp.add_argument("--pool", default="pool-yy", help="视频池 key，默认 pool-yy")
+    comp.add_argument("--platform", choices=["baijiahao", "bilibili", "xiaohongshu"],
+                      default="baijiahao", help="目标平台，默认 baijiahao")
 
     parser.add_argument("--dry-run", action="store_true", help="只打印将执行的 main.py 命令")
     return parser.parse_args()
@@ -53,6 +57,36 @@ def _categories(config_path: str) -> list[str]:
     with path.open("r", encoding="utf-8") as f:
         config = yaml.safe_load(f) or {}
     return list((config.get("keywords_by_category") or {}).keys())
+
+
+def _load_yaml(config_path: str) -> dict:
+    path = Path(config_path)
+    if not path.is_absolute():
+        path = ROOT / path
+    with path.open("r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def _load_pool(pool_key: str) -> dict:
+    if not pool_key:
+        return {}
+    path = ROOT / "conf" / "pools" / f"{pool_key}.json"
+    if not path.exists():
+        return {}
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _has_composite_guide(category: str, platform: str,
+                         pool_key: str, composite_config: str) -> bool:
+    pool_cat = (_load_pool(pool_key).get("categories") or {}).get(category, {})
+    if platform and (pool_cat.get("guides") or {}).get(platform):
+        return True
+    if pool_cat.get("guide"):
+        return True
+
+    config = _load_yaml(composite_config)
+    return False
 
 
 def _main_cmd(*parts: str) -> list[str]:
@@ -151,6 +185,13 @@ def _run_composite(args: argparse.Namespace) -> int:
     if not categories:
         print(f"未在 {args.claw_config} 找到 keywords_by_category")
         return 1
+    categories = [
+        category for category in categories
+        if _has_composite_guide(category, args.platform, args.pool, args.composite_config)
+    ]
+    if not categories:
+        print(f"未找到可合成品类：pool={args.pool} platform={args.platform}")
+        return 1
 
     # main.py composite --batch is category-scoped, so distribute the global
     # target evenly across configured categories. This keeps orchestration in
@@ -168,10 +209,16 @@ def _run_composite(args: argparse.Namespace) -> int:
             category,
             "--config",
             args.composite_config,
+            "--pool",
+            args.pool,
+            "--platform",
+            args.platform,
             "--limit",
             str(per_category),
             "--workers",
             str(max(1, args.workers)),
+            "--max-age-days",
+            str(max(1, args.max_age_days)),
         )
         code = _run_cmd(cmd, args.dry_run)
         print(f"[composite] {category} exit={code}")
@@ -185,6 +232,11 @@ def _run_composite(args: argparse.Namespace) -> int:
 
 def main() -> int:
     args = parse_args()
+    if args.dry_run:
+        if args.job == "claw":
+            return _run_claw(args)
+        return _run_composite(args)
+
     LOCK_DIR.mkdir(parents=True, exist_ok=True)
     lock_path = LOCK_DIR / f"auto_{args.job}.lock"
 

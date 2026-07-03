@@ -1,8 +1,4 @@
-"""
-PublishService — 发布业务操作（状态流转 + 数据持久化 + 通知）
-
-从 cmd/plan.py 提取的数据层操作逻辑。
-"""
+"""PublishService — 发布业务操作（状态流转 + 数据持久化 + 通知）。"""
 import random
 
 from utils.log import get_logger

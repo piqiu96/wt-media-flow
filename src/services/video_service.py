@@ -20,6 +20,6 @@ class VideoService:
 
     def add_from_file(self, path: str, title: str = None,
                       description: str = None, tags: str = None) -> dict:
-        """从文件路径添加视频（pipeline 用）"""
+        """从文件路径添加视频。"""
         video = self.repo.create(path, title, description, tags=tags)
         return {"success": True, "id": video.id}

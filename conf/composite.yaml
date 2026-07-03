@@ -11,33 +11,6 @@ input_dir: data/downloads/          # 批量：处理目录下所有视频
 # CLI --guide
 # > conf/pools/{pool}.json categories.{category}.guides.{platform}
 # > conf/pools/{pool}.json categories.{category}.guide
-# > guide_by_platform.{platform}.{category}
-# > guide_by_category.{category}
-# > guide_video
-guide_by_platform:
-  bilibili:
-    三角洲: data/guides/三角洲/三角洲_中国.mp4
-    暗区突围: data/guides/暗区突围/暗区突围.mp4
-    蛋仔派对: data/guides/蛋仔派对/蛋仔.mp4
-    火影忍者: data/guides/火影忍者/火影忍者_中国.mp4
-  baijiahao:
-    三角洲: data/guides/三角洲/三角洲行动_中国.mp4
-    暗区突围: data/guides/暗区突围/暗区6.mp4
-    蛋仔派对: data/guides/蛋仔派对/蛋仔派对.mp4
-    火影忍者: data/guides/火影忍者/火影手游_中国.mp4
-
-guide_by_category:
-  三角洲: data/guides/三角洲/三角洲行动_中国.mp4
-  暗区突围: data/guides/暗区突围/暗区6.mp4
-  蛋仔派对: data/guides/蛋仔派对/蛋仔派对.mp4
-  火影忍者: data/guides/火影忍者/火影手游_中国.mp4
-  洛克王国: data/guides/洛克王国/洛克王国_中国.mp4
-  王者荣耀: data/guides/王者/王者.mp4
-  星穹铁道: data/guides/星穹/gm8_中国.mp4
-  荒野乱斗: data/guides/荒野/荒野乱斗.mp4
-  光遇: data/guides/光遇/光遇.mp4
-  第五人格: data/guides/第五人格/第五人格.mp4
-  鸣潮: data/guides/鸣潮/鸣潮_中国.mp4
 
 # 合成参数
 #insert_at: 10                       # 插入位置（秒）
