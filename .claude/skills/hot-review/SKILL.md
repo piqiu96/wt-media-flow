@@ -1,0 +1,156 @@
+---
+description: Analyze this wt-media-flow repo's recently downloaded game videos and
+  current public game activity hotspots, then produce a user-reviewable recommendation
+  for which games to follow and how to update conf/claw.yaml keywords. Use when the
+  user asks to review hotspots, maintain claw keywords, judge whether game content
+  direction should change, or update keywords based on recent downloads and current
+  activities. This skill may update keywords only after explicit user review/approval
+  and must not decide or run claw fetching/downloading by itself.
+name: hot-review
+---
+
+触发方式：Use $hot-review to analyze recent downloaded videos and current game hotspots, then recommend claw.yaml keyword updates for my review.
+
+# Hot Review
+
+用于维护本项目的热点游戏方向和 `conf/claw.yaml` 采集关键词。核心目标是：先基于最近下载视频和当前公开热点形成 review，再在用户确认后只更新关键词。
+
+## 边界
+
+- 可以读取最近下载视频、数据库、配置文件，并联网搜索当前游戏热点。
+- 可以判断哪些游戏有新热点活动值得跟进，哪些游戏需要转向、降权或补充关键词。
+- 可以在用户明确确认后修改 `conf/claw.yaml`。
+- 不要自行决定或执行 `claw --fetch`、`claw --download`、合成、计划、发布、打包。
+- 可以建议“需要先抓一小批样本补证据”，但抓取动作必须交给用户确认并由其他流程执行。
+
+## 输入与默认范围
+
+优先使用用户指定的游戏品类。若用户没有指定，默认分析 `data/downloads/` 最近 3 天内有下载记录的游戏；如果最近 3 天为空，扩大到最近 7 天。
+
+合法游戏品类以 `conf/categories.yaml` 为准。关键词配置只以 `conf/claw.yaml` 为准。
+
+## 工作流
+
+### 1. 读取本地证据
+
+从仓库根目录执行只读检查：
+
+```bash
+find data/downloads -type f \( -iname '*.mp4' -o -iname '*.mov' -o -iname '*.m4v' \) -print
+sed -n '1,260p' conf/claw.yaml
+sed -n '1,160p' conf/categories.yaml
+```
+
+解析路径格式：
+
+```text
+data/downloads/{date}/{category}/{source_vid}_{title}.mp4
+```
+
+提取：
+
+- 日期
+- 游戏品类
+- 视频标题
+- 代表性标题
+- 高频热点词
+
+如果 `store/publisher.db` 有可用视频表，可补充标题、点赞、收藏、评论、状态；如果数据库为空或无表，直接使用下载目录，不要阻塞。
+
+### 2. 判断标题热点
+
+按游戏聚合标题，优先识别这些信号：
+
+- 当前活动名、节日名、赛季名
+- 新版本、新玩法、新地图、新模式
+- 新角色、新忍者、新英雄、新武器、新皮肤、新装备
+- 福利、白嫖、免费领取、礼包、兑换码、限时奖励
+- 攻略、活动攻略、新手攻略、赛季攻略、速通、通关、点位、配装
+
+排除或降权：
+
+- 纯娱乐对局、直播切片、反应视频
+- 无活动/攻略/装备/福利意图的泛内容
+- 明显过期节日词
+- 与游戏无关或跨品类误采内容
+
+### 3. 搜索公开热点
+
+必须联网核验当前热点；如果网络不可用，输出“本地证据版”，并标注置信度较低。
+
+搜索时优先组合：
+
+```text
+{游戏品类} 当前活动
+{游戏品类} 最新活动 攻略
+{游戏品类} 新版本 新赛季
+{游戏品类} 免费领取 白嫖 礼包
+{游戏品类} 新角色 新武器 新皮肤
+```
+
+对运营价值更高的热点排序：
+
+1. 官方或多源确认的限时活动、福利、礼包、免费领取。
+2. 最近标题中已出现且公开视频平台热度明显的活动攻略。
+3. 新赛季、新版本、新角色、新武器、新皮肤。
+4. 稳定攻略词，如新手攻略、配装攻略、点位攻略、速通。
+
+### 4. 生成 review 报告
+
+在任何文件修改前，先给用户输出 review。格式固定：
+
+```markdown
+## 最近下载概览
+- {日期范围} / {游戏} / {视频数}：{代表标题 3-5 个}
+
+## 热点判断
+- {游戏}：{建议跟进|维持|降权|需要补样本}
+  理由：{本地标题证据 + 公开热点证据}
+
+## 关键词建议
+- {游戏}
+  新增：...
+  保留：...
+  降权/删除：...
+
+## 预计抓取方向
+- {游戏}：活动 {x}% / 福利 {x}% / 攻略 {x}% / 装备版本 {x}%
+
+## 待确认操作
+- 是否更新 `conf/claw.yaml`：{游戏列表}
+- 是否需要先补抓样本：{只给建议，不执行}
+```
+
+如果建议先补抓样本，只给出原因和候选关键词；不要运行抓取命令。
+
+### 5. 更新关键词
+
+只有用户明确批准后，才修改 `conf/claw.yaml`。
+
+修改规则：
+
+- 只改 `keywords_by_category.<游戏品类>`。
+- 不改无关游戏。
+- 不改全局搜索参数，除非用户单独要求。
+- 保持 YAML 可读性：按“活动/福利向、攻略向、装备/版本向、当前热点”分组。
+- 删除过期词前必须在 review 中列明原因。
+
+关键词应围绕运营需要组织，常用意图词：
+
+- 活动、活动攻略、限时活动
+- 福利、白嫖、免费领取、礼包
+- 攻略、新手攻略、赛季攻略、速通
+- 装备推荐、新武器、新版本
+- 当前活动名、节日名、赛季名
+
+限制：每个游戏建议保留 10-20 个关键词，避免过宽导致泛内容过多。当前热点词优先放在对应游戏列表前半段。
+
+### 6. 完成后复述
+
+更新完成后，只总结：
+
+- 哪些游戏更新了关键词。
+- 新增、保留、降权/删除的核心方向。
+- 是否建议后续补抓样本，以及补样本的理由。
+
+不要直接执行补抓、下载、合成或发布。

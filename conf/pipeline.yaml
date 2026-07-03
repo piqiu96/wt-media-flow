@@ -1,12 +1,12 @@
 # 全流程 Pipeline 配置示例
-# 使用方式: .venv/bin/python3 src/main.py composite --config conf/composite.yaml --category 三角洲
+# 使用方式: .venv/bin/python3 src/main.py composite --config conf/composite.yaml --category 三角洲 --platform bilibili --pool pool-hz
 # 注意：pipeline 命令已移除，下载 + 合成请分别使用 claw 和 composite 命令
 
 # 引导视频（按品类配置，与 composite.yaml 保持一致）
 guide_by_category:
-  三角洲: data/guides/三角洲/guide.mp4
-  暗区突围: data/guides/暗区突围/guide.mp4
-  蛋仔派对: data/guides/蛋仔派对/guide.mp4
+  三角洲: data/guides/三角洲/三角洲行动_中国.mp4
+  暗区突围: data/guides/暗区突围/暗区6.mp4
+  蛋仔派对: data/guides/蛋仔派对/蛋仔派对.mp4
 
 # === 合成配置（供 composite 命令使用）===
 # 参见 conf/composite.yaml

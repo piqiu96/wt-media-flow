@@ -25,14 +25,15 @@ wt-media-flow — 视频素材采集 + 合成 + 多平台发布系统。
 .venv/bin/python3 src/main.py claw --download --category 三角洲
 
 # 合成视频（通过素材库 vid）
-.venv/bin/python3 src/main.py composite --vid <source_vid> --config conf/composite.yaml --category 三角洲
+.venv/bin/python3 src/main.py composite --vid <source_vid> --config conf/composite.yaml --category 三角洲 --platform bilibili --pool pool-hz
 
 # 批量合成
-.venv/bin/python3 src/main.py composite --vids <vid1> <vid2> --config conf/composite.yaml --category 三角洲
+.venv/bin/python3 src/main.py composite --vids <vid1> <vid2> --config conf/composite.yaml --category 三角洲 --platform baijiahao --pool pool-hz
+.venv/bin/python3 src/main.py composite --batch --category 三角洲 --platform bilibili --pool pool-hz --config conf/composite.yaml --limit 20
 
 # 发布计划
-.venv/bin/python3 src/main.py plan create --dry-run
-.venv/bin/python3 src/main.py plan create
+.venv/bin/python3 src/main.py plan create --user-id <USER_ID> --dry-run
+.venv/bin/python3 src/main.py plan create --user-id <USER_ID>
 .venv/bin/python3 src/main.py plan run --plan-id <N> --account-id <M>
 .venv/bin/python3 src/main.py plan check --plan-id <N>
 
@@ -97,7 +98,7 @@ app/web                           → infra/browser (bit_api)
 |------|------|
 | `store/publisher.db` | SQLite 数据库 |
 | `data/downloads/` | 下载的视频文件（按 date/category 分目录）|
-| `data/guides/{category}/guide.mp4` | 引导视频（按品类分目录）|
+| `data/guides/{category}/` | 引导视频（按品类分目录，平台路径在 `conf/pools/*.json` 或 `conf/composite.yaml` 配置）|
 | `data/output/` | 合成输出 |
 | `data/stickers/` | PNG 贴纸素材 |
 | `data/overlays/` | 尾部动画素材 |
@@ -116,11 +117,11 @@ app/web                           → infra/browser (bit_api)
 ## 约定
 
 - 所有 command.execute() 返回 `{"success": bool, "message": str, ...}`
-- 配置优先级：CLI 参数 > YAML 配置 > settings.py 默认值
+- 配置优先级：CLI 参数 > pool 品类配置 > YAML 配置 > settings.py 默认值
 - 注册模式：`@register_command`（cmd）、`@register_downloader`（downloader）、手动注册（plat）
 - 数据库：Repository 模式，Session 注入
 - 采集去重：`source_platform + source_vid`
-- 合成默认：insert_at 随机 10-20s，截尾 3-5s，时长 ≤ 150s
+- 合成默认：insert_at 随机 10-20s，截尾 3-5s，时长 ≤ 180s
 
 ## 搜索参数默认值
 

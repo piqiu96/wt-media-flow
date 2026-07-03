@@ -26,17 +26,19 @@ class CompositeCommand(BaseCommand):
         parser.add_argument("--insert-range", type=str, help="自适应插入范围（如 10-15）")
         parser.add_argument("--max-duration", type=float,
                             help=f"最终视频最大时长（秒），默认 {settings.DEFAULT_MAX_DURATION}")
-        parser.add_argument("--guide-duration", type=float, default=0,
+        parser.add_argument("--guide-duration", type=float, default=None,
                             help="截取引导视频前 N 秒")
         parser.add_argument("--output", help=f"输出目录（默认 {settings.OUTPUT_DIR}）")
         parser.add_argument("--no-dedup", action="store_true", help="关闭去重处理")
-        parser.add_argument("--workers", type=int, default=1, help="并发数")
+        parser.add_argument("--workers", type=int, default=None, help="并发数")
         parser.add_argument("--auto-publish", action="store_true", help="合成后自动创建发布任务")
         parser.add_argument("--account-id", type=int, default=None, help="自动发布账号 ID")
         parser.add_argument("--config", help="YAML 配置文件路径")
         parser.add_argument("--recomposite", type=int, metavar="DAYS",
                             help="重新合成最近 N 天视频")
         parser.add_argument("--category", help="品类过滤")
+        parser.add_argument("--platform", choices=["bilibili", "baijiahao", "xiaohongshu"],
+                            help="目标平台，用于选择平台专属引导视频")
         parser.add_argument("--pool", help="视频池 key，对应 conf/pools/{key}.json，读取引导视频配置")
         parser.add_argument("--batch", action="store_true",
                             help="批量合成：自动从数据库取该品类所有未合成素材")
@@ -82,33 +84,52 @@ class CompositeCommand(BaseCommand):
         input_path = self.merge_args(args, config, "input_path") or config.get("input_dir") or config.get("input_file")
 
         category_for_guide = getattr(args, "category", None) or config.get("category")
+        platform = getattr(args, "platform", None) or config.get("platform")
         guide_by_cat = config.get("guide_by_category", {})
+        guide_by_platform = config.get("guide_by_platform", {})
         pool_key = getattr(args, "pool", None) or config.get("pool")
+        pool_cat_cfg = {}
+        if pool_key and category_for_guide:
+            from conf.pool_config import get_pool_category_config
+            pool_cat_cfg = get_pool_category_config(pool_key, category_for_guide)
+
+        effective_config = dict(config)
+        effective_config.update(pool_cat_cfg)
+        if (
+            pool_cat_cfg.get("insert_at") is not None
+            and pool_cat_cfg.get("insert_range") is None
+            and getattr(args, "insert_range", None) is None
+        ):
+            effective_config.pop("insert_range", None)
 
         if getattr(args, "guide", None):
             guide = args.guide
         elif pool_key and category_for_guide:
-            # 优先从 pool JSON 配置读取引导视频路径
+            # 优先从 pool JSON 配置读取平台专属引导视频路径，未配置则回退到旧 guide 字段。
             from conf.pool_config import get_pool_guide
-            pool_guide = get_pool_guide(pool_key, category_for_guide)
-            guide = pool_guide or guide_by_cat.get(category_for_guide) or config.get("guide_video")
-        elif category_for_guide and category_for_guide in guide_by_cat:
-            guide = guide_by_cat[category_for_guide]
+            pool_guide = get_pool_guide(pool_key, category_for_guide, platform=platform)
+            platform_guide = (guide_by_platform.get(platform, {})
+                              .get(category_for_guide)) if platform else None
+            guide = pool_guide or platform_guide or guide_by_cat.get(category_for_guide) or config.get("guide_video")
+        elif category_for_guide:
+            platform_guide = (guide_by_platform.get(platform, {})
+                              .get(category_for_guide)) if platform else None
+            guide = platform_guide or guide_by_cat.get(category_for_guide) or config.get("guide_video")
         else:
             guide = config.get("guide_video")
 
-        guide_duration = float(self.merge_args(args, config, "guide_duration") or config.get("guide_duration", 0))
-        output_dir = self.merge_args(args, config, "output") or config.get("output_dir", settings.OUTPUT_DIR)
-        insert_at, insert_range = self._resolve_insert_at(args, config)
+        guide_duration = float(self.merge_args(args, effective_config, "guide_duration") or effective_config.get("guide_duration", 0))
+        output_dir = self.merge_args(args, effective_config, "output") or effective_config.get("output_dir", settings.OUTPUT_DIR)
+        insert_at, insert_range = self._resolve_insert_at(args, effective_config)
 
-        max_duration_val = self.merge_args(args, config, "max_duration")
-        max_duration = float(max_duration_val) if max_duration_val is not None else config.get("max_duration", settings.DEFAULT_MAX_DURATION)
+        max_duration_val = self.merge_args(args, effective_config, "max_duration")
+        max_duration = float(max_duration_val) if max_duration_val is not None else effective_config.get("max_duration", settings.DEFAULT_MAX_DURATION)
 
         no_dedup = getattr(args, "no_dedup", False)
-        dedup = not no_dedup and config.get("dedup", True)
-        workers = getattr(args, "workers", 1) or config.get("workers", 1)
-        auto_publish = getattr(args, "auto_publish", False) or config.get("auto_publish", False)
-        account_id = getattr(args, "account_id", None) or config.get("account_id")
+        dedup = not no_dedup and effective_config.get("dedup", True)
+        workers = getattr(args, "workers", 1) or effective_config.get("workers", 1)
+        auto_publish = getattr(args, "auto_publish", False) or effective_config.get("auto_publish", False)
+        account_id = getattr(args, "account_id", None) or effective_config.get("account_id")
         watermark_cfg = config.get("watermark", {})
 
         # --recomposite

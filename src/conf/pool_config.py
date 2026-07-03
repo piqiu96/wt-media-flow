@@ -19,7 +19,14 @@ def load_pool(pool_id: str) -> dict:
       "id": "pool-a",
       "name": "A组",
       "categories": {
-        "三角洲": {"guide": "data/guides/三角洲/guide.mp4", "insert_at": 12},
+        "三角洲": {
+          "guide": "data/guides/三角洲/guide.mp4",
+          "guides": {
+            "baijiahao": "data/guides/三角洲/guide-bjh.mp4",
+            "bilibili": "data/guides/三角洲/guide-bili.mp4"
+          },
+          "insert_at": 12
+        },
         ...
       }
     }
@@ -39,13 +46,22 @@ def load_pool(pool_id: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def get_pool_guide(pool_id: str, category: str) -> Optional[str]:
-    """获取指定池子中某品类的引导视频路径，不存在返回 None。"""
+def get_pool_guide(pool_id: str, category: str,
+                   platform: str | None = None) -> Optional[str]:
+    """获取指定池子中某品类的引导视频路径，不存在返回 None。
+
+    优先级：categories.{category}.guides.{platform} > categories.{category}.guide
+    """
     if not pool_id or not category:
         return None
     try:
         pool = load_pool(pool_id)
-        return pool.get("categories", {}).get(category, {}).get("guide")
+        cat_cfg = pool.get("categories", {}).get(category, {})
+        if platform:
+            guide = cat_cfg.get("guides", {}).get(platform)
+            if guide:
+                return guide
+        return cat_cfg.get("guide")
     except (FileNotFoundError, ValueError):
         return None
 
