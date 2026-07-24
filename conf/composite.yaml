@@ -17,6 +17,18 @@ input_dir: data/downloads/          # 批量：处理目录下所有视频
 insert_range: "10-15"             # 自适应插入：在范围内找关键帧（优先于 insert_at）
 # guide_duration: 5                 # 可选：只截取引导视频前 N 秒（默认使用完整引导视频）
 
+# 广告画中画：底层素材模糊，广告缩放后居中；关闭后回退为顺序插入
+guide_blend:
+  enabled: true
+  canvas_width: 1920
+  canvas_height: 1080
+  main_width_ratio: 0.92
+  main_width_ratio_range: "0.91-0.96"
+  background_zoom: 1.12
+  background_blur: true
+  blur_radius: 7
+  shade_opacity: 0.22
+
 # 去重参数
 dedup: true                         # 开启视频去重（默认 true）
 # overlay_dir: data/overlays/       # 尾部动画素材目录（为空则自动生成）

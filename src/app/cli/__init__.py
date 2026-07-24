@@ -75,3 +75,4 @@ from app.cli.serve import ServeCommand           # noqa: E402,F401
 from app.cli.pack import PackCommand             # noqa: E402,F401
 from app.cli.overlay import OverlayCommand       # noqa: E402,F401
 from app.cli.diagnose import DiagnoseCommand     # noqa: E402,F401
+from app.cli.tail_dedup import TailDedupCommand  # noqa: E402,F401

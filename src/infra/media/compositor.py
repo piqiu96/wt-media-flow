@@ -573,6 +573,189 @@ class VideoCompositor:
             except OSError:
                 pass
 
+    def blend_with_background(self, background_video: str, main_video: str,
+                              output_path: str,
+                              canvas_w: int = 1920,
+                              canvas_h: int = 1080,
+                              main_width_ratio: float = 0.75,
+                              main_x: Optional[int] = None,
+                              main_y: Optional[int] = None,
+                              insert_at: float = 0,
+                              background_zoom: float = 1.12,
+                              background_blur_radius: int = 7,
+                              background_shade_opacity: float = 0.22,
+                              max_duration: float = 0,
+                              background_blur: bool = False,
+                              insert_range: Optional[tuple[float, float]] = None) -> dict:
+        """在指定位置叠加广告，并在广告结束后继续播放完整原素材。"""
+        if not os.path.isfile(background_video):
+            return {"success": False, "error": f"底层视频不存在: {background_video}"}
+        if not os.path.isfile(main_video):
+            return {"success": False, "error": f"主视频不存在: {main_video}"}
+
+        os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+
+        try:
+            bg_info = self.get_video_info(background_video)
+            main_info = self.get_video_info(main_video)
+            bg_duration = bg_info["duration"]
+            main_duration = main_info["duration"]
+
+            if bg_duration <= 0 or main_duration <= 0:
+                return {"success": False, "error": "视频时长无效，无法合成"}
+
+            final_duration = min(bg_duration, max_duration) if max_duration > 0 else bg_duration
+            if insert_range:
+                insert_at = SceneDetector(self.ffprobe_path).find_insert_point(
+                    background_video, insert_range[0], insert_range[1], final_duration
+                )
+                logger.info(
+                    "画中画自适应插入点: %.2fs（范围 %.1f-%.1fs）",
+                    insert_at, insert_range[0], insert_range[1],
+                )
+            insert_at = min(max(0, insert_at), final_duration)
+            overlay_duration = main_duration
+            bg_overlay_end = min(insert_at + overlay_duration, final_duration)
+            tail_start = insert_at
+            has_head = insert_at > 0.1
+            has_tail = final_duration > tail_start + 0.1
+            tail_duration = final_duration - tail_start if has_tail else 0
+            output_duration = final_duration + overlay_duration
+
+            fps = main_info["fps"] or bg_info["fps"] or 30.0
+            sr = main_info["sample_rate"] or bg_info["sample_rate"] or 44100
+            main_w = max(2, int(canvas_w * main_width_ratio) // 2 * 2)
+            main_h = max(2, int(canvas_h * 0.90) // 2 * 2)
+
+            base_bg_filters = [
+                f"scale={canvas_w}:{canvas_h}:force_original_aspect_ratio=increase",
+                f"crop={canvas_w}:{canvas_h}",
+                "setsar=1",
+            ]
+            normal_bg_chain = ",".join(base_bg_filters)
+            bg_video_filters = list(base_bg_filters)
+            zoom = max(1.0, background_zoom)
+            if zoom > 1:
+                zoom_w = max(2, int(canvas_w * zoom) // 2 * 2)
+                zoom_h = max(2, int(canvas_h * zoom) // 2 * 2)
+                bg_video_filters.extend([
+                    f"scale={zoom_w}:{zoom_h}",
+                    f"crop={canvas_w}:{canvas_h}",
+                ])
+            if background_blur:
+                blur_radius = max(1, int(background_blur_radius))
+                shade_opacity = min(1.0, max(0.0, background_shade_opacity))
+                bg_video_filters.extend([
+                    f"boxblur={blur_radius}:1",
+                    "eq=brightness=-0.08:saturation=0.82",
+                    "drawbox=x=0:y=ih*0.75:w=iw:h=ih*0.25:"
+                    f"color=black@{shade_opacity:.3f}:t=fill",
+                ])
+            bg_chain = ",".join(bg_video_filters)
+
+            main_chain = (
+                f"scale={main_w}:{main_h}:force_original_aspect_ratio=decrease,"
+                "setsar=1"
+            )
+            x = "(W-w)/2" if main_x is None else str(max(0, int(main_x)))
+            y = "(H-h)/2" if main_y is None else str(max(0, int(main_y)))
+
+            filter_parts = [
+                (
+                    f"[0:v]trim={insert_at:.3f}:{bg_overlay_end:.3f},"
+                    f"setpts=PTS-STARTPTS,{bg_chain},"
+                    f"tpad=stop_mode=clone:stop_duration={overlay_duration:.3f},"
+                    f"trim=duration={overlay_duration:.3f}[bg_ad]"
+                ),
+                (
+                    f"[1:v]trim=duration={overlay_duration:.3f},setpts=PTS-STARTPTS,"
+                    f"{main_chain}[main_ad]"
+                ),
+                (
+                    f"[bg_ad][main_ad]overlay={x}:{y}:format=auto,"
+                    f"fps={fps:.6f},setsar=1[v_ad]"
+                ),
+                (
+                    f"[1:a]atrim=duration={overlay_duration:.3f},"
+                    f"asetpts=PTS-STARTPTS,aresample={sr}[a_ad]"
+                ),
+            ]
+
+            concat_n = 1
+            concat_labels = "[v_ad][a_ad]"
+            if has_head:
+                filter_parts.extend([
+                    (
+                        f"[0:v]trim=0:{insert_at:.3f},setpts=PTS-STARTPTS,"
+                        f"{normal_bg_chain},fps={fps:.6f}[v_head]"
+                    ),
+                    (
+                        f"[0:a]atrim=0:{insert_at:.3f},asetpts=PTS-STARTPTS,"
+                        f"aresample={sr}[a_head]"
+                    ),
+                ])
+                concat_n += 1
+                concat_labels = "[v_head][a_head]" + concat_labels
+
+            if has_tail:
+                filter_parts.extend([
+                    (
+                        f"[0:v]trim={tail_start:.3f}:{final_duration:.3f},"
+                        f"setpts=PTS-STARTPTS,{normal_bg_chain},fps={fps:.6f}[v_tail]"
+                    ),
+                    (
+                        f"[0:a]atrim={tail_start:.3f}:{final_duration:.3f},"
+                        f"asetpts=PTS-STARTPTS,aresample={sr}[a_tail]"
+                    ),
+                ])
+                concat_n += 1
+                concat_labels += "[v_tail][a_tail]"
+
+            filter_parts.append(
+                f"{concat_labels}concat=n={concat_n}:v=1:a=1[outv][outa]"
+            )
+            filter_complex = ";\n".join(filter_parts)
+            cmd = [
+                self.ffmpeg_path, "-y",
+                "-i", background_video,
+                "-i", main_video,
+                "-filter_complex", filter_complex,
+                "-map", "[outv]",
+                "-map", "[outa]",
+                "-c:v", settings.VIDEO_CODEC,
+                "-c:a", settings.AUDIO_CODEC,
+                "-movflags", "+faststart",
+                output_path,
+            ]
+
+            logger.info(
+                "画中画融合: 底层 %.1fs, 插入点 %.2fs, 广告 %.1fs, 剩余 %.1fs",
+                bg_duration, insert_at, overlay_duration, tail_duration,
+            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+            if result.returncode != 0:
+                logger.error("FFmpeg filter_complex:\n%s", filter_complex)
+                logger.error(f"FFmpeg 失败: {result.stderr[-500:]}")
+                return {"success": False, "error": f"FFmpeg 失败:\n{result.stderr[-500:]}"}
+
+            return {
+                "success": True,
+                "output_path": output_path,
+                "background_video": background_video,
+                "main_video": main_video,
+                "overlay_duration": overlay_duration,
+                "insert_at": insert_at,
+                "background_zoom": zoom,
+                "tail_duration": tail_duration,
+                "final_duration": output_duration,
+            }
+        except subprocess.TimeoutExpired:
+            logger.error("FFmpeg 执行超时（900s）")
+            return {"success": False, "error": "FFmpeg 执行超时（900s）"}
+        except Exception as e:
+            logger.error(f"画中画融合异常: {e}")
+            return {"success": False, "error": str(e)}
+
     def batch_composite(self, input_dir: str, guide_video: str,
                         insert_at: float, output_dir: str,
                         guide_duration: float = 0,

@@ -4,12 +4,12 @@
   "categories": {
     "三角洲": { "guide": "data/guides/三角洲/三角洲_网站.mp4", "guides": { "baijiahao": "data/guides/三角洲/三角洲_网站.mp4", "bilibili": "data/guides/三角洲/三角洲_评论区.mp4" }, "insert_at": 12, "max_duration": 180 },
     "蛋仔派对": { "guide": "data/guides/蛋仔派对/蛋仔_网站.mp4", "guides": { "baijiahao": "data/guides/蛋仔派对/蛋仔_网站.mp4", "bilibili": "data/guides/蛋仔派对/蛋仔_评论区.mp4" }, "insert_at": 12, "max_duration": 180 },
-    "火影忍者": { "guide": "data/guides/火影忍者/火影_网站.mp4", "guides": { "baijiahao": "data/guides/火影忍者/火影_网站.mp4", "bilibili": "data/guides/火影忍者/火影_评论区.mp4" }, "insert_at": 12, "max_duration": 180 },
+    "火影忍者": { "guide": "data/guides/火影忍者/火影_网站.mp4", "guides": { "baijiahao": "data/guides/火影忍者/火影_网站.mp4", "bilibili": "data/guides/火影忍者/火影_评论区.mp4" }, "insert_range": "10-15", "max_duration": 180 },
     "暗区突围": { "guide": "data/guides/暗区突围/暗区_网站.mp4", "guides": { "baijiahao": "data/guides/暗区突围/暗区_网站.mp4", "bilibili": "data/guides/暗区突围/暗区_评论区.mp4" }, "insert_at": 12, "max_duration": 180 },
     "星穹铁道": { "guide": "data/guides/星穹/gm8_中国.mp4", "guides": { "baijiahao": "data/guides/星穹/gm8_中国.mp4", "bilibili": "data/guides/星穹/gm8_中国.mp4" }, "insert_at": 12, "max_duration": 180 },
     "荒野乱斗": { "guide": "data/guides/荒野/荒野_网站.mp4", "guides": { "baijiahao": "data/guides/荒野/荒野_网站.mp4", "bilibili": "data/guides/荒野/荒野_评论区.mp4" }, "insert_at": 10, "max_duration": 180 },
     "光遇": { "guide": "data/guides/光遇/光遇.mp4", "guides": { "baijiahao": "data/guides/光遇/光遇.mp4", "bilibili": "data/guides/光遇/光遇.mp4" }, "insert_at": 10, "max_duration": 180 },
-    "洛克王国": { "guide": "data/guides/洛克王国/洛克_评论区.mp4", "guides": { "baijiahao": "data/guides/洛克王国/洛克_评论区.mp4", "bilibili": "data/guides/洛克王国/洛克_评论区.mp4" }, "insert_at": 12, "max_duration": 180 },
+    "洛克王国": { "guide": "data/guides/洛克王国/洛克_网站.mp4", "guides": { "baijiahao": "data/guides/洛克王国/洛克_网站.mp4", "bilibili": "data/guides/洛克王国/洛克_评论区.mp4" }, "insert_at": 12, "max_duration": 180 },
     "第五人格": { "guide": "data/guides/第五人格/第五_网站.mp4", "guides": { "baijiahao": "data/guides/第五人格/第五_网站.mp4", "bilibili": "data/guides/第五人格/第五_评论区.mp4" }, "insert_at": 12, "max_duration": 180 },
     "王者荣耀": { "guide": "data/guides/王者/王者_网站.mp4", "guides": { "baijiahao": "data/guides/王者/王者_网站.mp4", "bilibili": "data/guides/王者/王者_评论区.mp4" }, "insert_at": 10, "max_duration": 180 },
     "鸣潮": { "guide": "data/guides/鸣潮/鸣潮_中国.mp4", "guides": { "baijiahao": "data/guides/鸣潮/鸣潮_中国.mp4", "bilibili": "data/guides/鸣潮/鸣潮_中国.mp4" }, "insert_at": 10, "max_duration": 180 }

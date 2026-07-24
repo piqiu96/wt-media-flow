@@ -23,7 +23,8 @@ class CompositeWorkflow:
                          existing_task_id: int = None,
                          watermark_cfg: dict = None,
                          pool: str = None,
-                         target_platform: str = None) -> dict:
+                         target_platform: str = None,
+                         guide_blend: dict = None) -> dict:
         """通过 source_vid 从素材库查询，下载远程视频后合成"""
         from infra.db.database import SessionLocal
         from infra.db.repositories import VideoRepository, VideoTaskRepository
@@ -120,13 +121,44 @@ class CompositeWorkflow:
                     if watermark_text:
                         logger.info(f"水印: platform={account.platform} text='{watermark_text}'")
 
-            result = compositor.composite(
-                input_path, guide, insert_at, output_path, guide_duration,
-                dedup=dedup, insert_range=insert_range, max_duration=max_duration,
-                category=video.category or "",
-                watermark_text=watermark_text,
-                watermark_style=watermark_style,
-            )
+            blend_cfg = guide_blend or {}
+            if blend_cfg.get("enabled", False):
+                width_ratio = float(blend_cfg.get("main_width_ratio", 0.92))
+                width_range = blend_cfg.get("main_width_ratio_range")
+                if width_range:
+                    try:
+                        min_ratio, max_ratio = (
+                            float(part) for part in str(width_range).split("-", 1)
+                        )
+                        width_ratio = round(random.uniform(min_ratio, max_ratio), 3)
+                    except (TypeError, ValueError):
+                        logger.warning(
+                            "main_width_ratio_range 格式错误: %s，使用 %.3f",
+                            width_range, width_ratio,
+                        )
+                result = compositor.blend_with_background(
+                    background_video=input_path,
+                    main_video=guide,
+                    output_path=output_path,
+                    canvas_w=int(blend_cfg.get("canvas_width", 1920)),
+                    canvas_h=int(blend_cfg.get("canvas_height", 1080)),
+                    main_width_ratio=width_ratio,
+                    insert_at=insert_at,
+                    background_zoom=float(blend_cfg.get("background_zoom", 1.12)),
+                    background_blur_radius=int(blend_cfg.get("blur_radius", 7)),
+                    background_shade_opacity=float(blend_cfg.get("shade_opacity", 0.22)),
+                    max_duration=max_duration,
+                    background_blur=bool(blend_cfg.get("background_blur", True)),
+                    insert_range=insert_range,
+                )
+            else:
+                result = compositor.composite(
+                    input_path, guide, insert_at, output_path, guide_duration,
+                    dedup=dedup, insert_range=insert_range, max_duration=max_duration,
+                    category=video.category or "",
+                    watermark_text=watermark_text,
+                    watermark_style=watermark_style,
+                )
 
             if result["success"]:
                 out_size_mb = round(os.path.getsize(result["output_path"]) / 1024 / 1024, 1) \
@@ -164,7 +196,8 @@ class CompositeWorkflow:
                           account_id: int = None,
                           watermark_cfg: dict = None,
                           pool: str = None,
-                          target_platform: str = None) -> dict:
+                          target_platform: str = None,
+                          guide_blend: dict = None) -> dict:
         """批量通过 source_vid 下载并合成"""
         if not guide:
             return {"success": False, "message": "请指定 --guide（引导视频路径）"}
@@ -175,20 +208,13 @@ class CompositeWorkflow:
             vid = vid.strip()
             logger.info(f"[{i}/{len(vids)}] vid={vid}")
 
-            cur_insert_at = insert_at
-            if not insert_range:
-                try:
-                    parts = settings.DEFAULT_INSERT_RANGE.split("-")
-                    cur_insert_at = round(random.uniform(float(parts[0]), float(parts[1])), 2)
-                except (ValueError, IndexError):
-                    pass
-
             result = self.composite_by_vid(
-                vid, guide, cur_insert_at, output_dir, guide_duration,
+                vid, guide, insert_at, output_dir, guide_duration,
                 dedup, insert_range, max_duration,
                 auto_publish=auto_publish, account_id=account_id,
                 watermark_cfg=watermark_cfg, pool=pool,
                 target_platform=target_platform,
+                guide_blend=guide_blend,
             )
             result["vid"] = vid
             status = "成功" if result.get("success") else "失败"

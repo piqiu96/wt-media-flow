@@ -124,6 +124,7 @@ class CompositeCommand(BaseCommand):
         auto_publish = getattr(args, "auto_publish", False) or effective_config.get("auto_publish", False)
         account_id = getattr(args, "account_id", None) or effective_config.get("account_id")
         watermark_cfg = config.get("watermark", {})
+        guide_blend = effective_config.get("guide_blend", {"enabled": True})
 
         # --recomposite
         recomposite_days = getattr(args, "recomposite", None)
@@ -162,6 +163,7 @@ class CompositeCommand(BaseCommand):
                 workers=workers, auto_publish=auto_publish, account_id=account_id,
                 watermark_cfg=watermark_cfg, pool=pool_key,
                 target_platform=platform,
+                guide_blend=guide_blend,
             )
 
         # --vids
@@ -172,6 +174,7 @@ class CompositeCommand(BaseCommand):
                 workers=workers, auto_publish=auto_publish, account_id=account_id,
                 watermark_cfg=watermark_cfg, pool=pool_key,
                 target_platform=platform,
+                guide_blend=guide_blend,
             )
 
         # --vid
@@ -182,6 +185,7 @@ class CompositeCommand(BaseCommand):
                 auto_publish=auto_publish, account_id=account_id,
                 watermark_cfg=watermark_cfg, pool=pool_key,
                 target_platform=platform,
+                guide_blend=guide_blend,
             )
 
         # --input
